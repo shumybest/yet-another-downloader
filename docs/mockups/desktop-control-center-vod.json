@@ -1,0 +1,49 @@
+{
+  "preset": "free-image",
+  "brief": "为 macOS Tauri 桌面视频下载器设计高保真 UI 效果图，用于确认桌面控制台改版方向。",
+  "prompt": "Create a polished high-fidelity macOS desktop application screenshot, not a website landing page.\nPreserve the reference image's identity: near-black deep teal background, restrained blue-green atmospheric glow, acid-lime accent, thin desaturated teal borders, rounded but technical cards, compact bold typography.\n\nWindow composition at 1600x1120:\n- Native macOS title bar at top.\n- Compact 64px app header with MB mark and product name on the left; on the right show task throughput, a green engine status, and a small engine control button.\n- Below it, a slim one-line workspace title \"下载控制台\" with a short subtitle. Do not use a huge marketing headline.\n- Main content is a dense two-column control-center grid that fits in one viewport.\n- Left column occupies about 72 percent: filter tabs, task count, and three realistic download task cards. One downloading task shows progress, speed and fragments; one completed task; one failed task.\n- Failed task shows a short friendly error summary and a compact collapsed row for technical details, not a wall of error text.\n- Right column occupies about 28 percent: engine status card with restart control and log access; download settings card; compact activity summary.\n- Only the left task list visually implies internal scrolling. The overall window must not have a page scrollbar.\n- Buttons in every task card have exactly equal height and aligned baselines. Primary lime, secondary outlined.\n- Use generous but efficient spacing, strong information hierarchy, no clipped content, no horizontal overflow.\n\nMake the interface feel like a professional native download manager: operational, calm, precise, compact, and clearly actionable.\nThe two generated candidates may vary slightly: one denser data-console arrangement and one calmer split-workspace arrangement.\n",
+  "instruction": "Treat the supplied screenshot as palette and brand reference only. Replace its oversized hero and long page flow with the specified compact application layout.",
+  "references": [
+    "/var/folders/pq/1qn5bh2j379_d501wpd0_9900000gq/T/codex-clipboard-57bb4c08-7bcc-4ccc-841c-bf69a6cda467.png"
+  ],
+  "text_policy": "text-bearing",
+  "exact_text": [
+    "yet another downloader",
+    "下载控制台",
+    "引擎在线",
+    "重新启动",
+    "查看日志",
+    "全部",
+    "下载中",
+    "已完成",
+    "失败",
+    "重新下载",
+    "删除记录"
+  ],
+  "constraints": {
+    "require": [
+      "single-window desktop app layout",
+      "all primary controls visible within one viewport",
+      "equal-height action buttons",
+      "friendly error summary with collapsed technical details"
+    ],
+    "avoid": [
+      "oversized hero headline",
+      "full-page vertical scrollbar",
+      "horizontal scrollbar",
+      "purple accents",
+      "generic SaaS dashboard",
+      "dense paragraphs of generated text",
+      "browser chrome outside the macOS app window"
+    ]
+  },
+  "output": {
+    "path": "docs/mockups/desktop-control-center.png",
+    "size": "1600x1120",
+    "aspect_ratio": "auto",
+    "quality": "image2_medium",
+    "format": "png",
+    "count": 2,
+    "fit": "crop"
+  }
+}

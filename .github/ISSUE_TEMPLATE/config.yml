@@ -1,0 +1,8 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Security vulnerability
+    url: https://github.com/shumybest/yet-another-downloader/security/advisories/new
+    about: Report vulnerabilities privately instead of opening a public issue.
+  - name: Support guide
+    url: https://github.com/shumybest/yet-another-downloader/blob/main/SUPPORT.md
+    about: Read what diagnostic information is safe and useful to share.

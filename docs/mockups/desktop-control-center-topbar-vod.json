@@ -1,0 +1,54 @@
+{
+  "preset": "free-image",
+  "brief": "优化 macOS Tauri 视频下载器效果图，去掉沉重的右侧栏，形成轻量统一的桌面下载控制台。",
+  "prompt": "Create a polished high-fidelity macOS desktop application screenshot, not a website landing page. Use the supplied previous concept as a style and quality reference, but substantially simplify its information architecture. Preserve the near-black deep teal palette, subtle blue-green atmospheric glow, acid-lime accent, thin desaturated teal borders, compact typography, and precise native download-manager feeling.\n\nWindow composition at 1600x1120:\n- Native macOS title bar.\n- One compact application header. Brand at left. At right, one horizontal operational status cluster containing engine online status, global live speed, active task count, downloaded total, a compact restart icon action, and one settings button. The metrics should be visually light, separated by thin dividers, not enclosed in large cards.\n- A slim page title row labeled 下载控制台 with filter tabs and task count.\n- No right sidebar and no persistent settings panel. Settings open from the top settings button as a future modal or drawer, but the modal is not open in this screenshot.\n- The full content width is a single task workspace with three compact task rows/cards: one active download, one completed item, and one failed item.\n- The active task has progress bar, speed, bytes, fragments, and remaining time in one efficient line.\n- The failed task shows one friendly Chinese error summary. The original technical error is hidden behind a collapsed 技术详情 row.\n- Equal-height aligned primary and secondary action buttons.\n- Main app window has no body scrollbar. The task list alone may imply internal vertical scrolling through a subtle clipped continuation or narrow internal indicator.\n- More breathing room than a dense enterprise dashboard, but much more compact than a marketing page.\n\nPrioritize the task content. The top status cluster should feel like a lightweight instrument panel, not a second navigation bar. Avoid redundant status cards, repeated metrics, oversized panels, and excessive borders.",
+  "instruction": "Use the reference image for palette, component finish, and task-card quality. Remove its right column entirely and redistribute only essential live metrics into the top header.",
+  "references": [
+    "docs/mockups/desktop-control-center-02.png"
+  ],
+  "text_policy": "text-bearing",
+  "exact_text": [
+    "yet another downloader",
+    "下载控制台",
+    "引擎在线",
+    "实时速率",
+    "活动任务",
+    "设置",
+    "全部",
+    "下载中",
+    "已完成",
+    "失败",
+    "技术详情",
+    "重新下载",
+    "删除记录"
+  ],
+  "constraints": {
+    "require": [
+      "single full-width task workspace",
+      "lightweight top status cluster",
+      "settings represented by one top button",
+      "all controls visible in one viewport",
+      "equal-height task action buttons"
+    ],
+    "avoid": [
+      "right sidebar",
+      "large status cards",
+      "persistent settings form",
+      "oversized hero headline",
+      "full-page scrollbar",
+      "horizontal scrollbar",
+      "purple accents",
+      "generic SaaS dashboard",
+      "long raw error paragraph"
+    ]
+  },
+  "output": {
+    "path": "docs/mockups/desktop-control-center-topbar.png",
+    "size": "1600x1120",
+    "aspect_ratio": "auto",
+    "quality": "image2_medium",
+    "format": "png",
+    "count": 2,
+    "fit": "crop"
+  }
+}

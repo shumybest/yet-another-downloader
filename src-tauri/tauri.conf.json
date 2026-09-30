@@ -1,0 +1,23 @@
+{
+  "build": {
+    "beforeDevCommand": "pnpm run stage:extension && pnpm --filter @m3u8-bridge/desktop dev -- --host 127.0.0.1",
+    "beforeBuildCommand": "pnpm run build:desktop && pnpm run stage:extension && pnpm run stage:legal",
+    "devPath": "http://localhost:5173",
+    "distDir": "../apps/desktop/dist",
+    "withGlobalTauri": true
+  },
+  "package": { "productName": "yet another downloader", "version": "0.1.0" },
+  "tauri": {
+    "allowlist": { "all": false },
+    "bundle": {
+      "active": true,
+      "targets": ["dmg", "app"],
+      "identifier": "io.github.shumybest.yet-another-downloader",
+      "icon": ["icons/icon.icns", "icons/icon.png"],
+      "externalBin": ["binaries/m3u8-bridge-engine"],
+      "resources": ["binaries/ffmpeg", "binaries/ffprobe", "binaries/lib", "resources/chrome-extension", "resources/legal"]
+    },
+    "windows": [{ "title": "yet another downloader", "width": 1120, "height": 780, "minWidth": 740, "minHeight": 560 }],
+    "security": { "csp": "default-src 'self' asset: tauri: http://tauri.localhost; img-src 'self' asset: http://tauri.localhost data:; style-src 'self' 'unsafe-inline'; script-src 'self'; connect-src 'self' http://127.0.0.1:8765" }
+  }
+}

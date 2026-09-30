@@ -1,0 +1,12 @@
+{
+  "name": "@m3u8-bridge/capture-core",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "main": "src/index.ts",
+  "types": "src/index.ts",
+  "scripts": {
+    "test": "node --experimental-strip-types --test src/index.test.ts"
+  },
+  "license": "MIT"
+}

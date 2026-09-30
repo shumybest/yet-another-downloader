@@ -1,0 +1,57 @@
+name: Bug report
+description: Report a reproducible problem without sharing private media credentials.
+title: "[Bug]: "
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: Do not include cookies, tokens, signed URLs, private videos, or unsanitized logs. Report vulnerabilities through the Security page instead.
+  - type: input
+    id: version
+    attributes:
+      label: Version or commit
+      placeholder: 0.1.0 or commit SHA
+    validations:
+      required: true
+  - type: dropdown
+    id: media
+    attributes:
+      label: Media type
+      options: [HLS, MPEG-DASH, Direct video, Chrome extension, Desktop lifecycle, Other]
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: Reproduction steps
+      description: Use reserved example URLs and describe whether a proxy is configured.
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected behavior
+    validations:
+      required: true
+  - type: textarea
+    id: actual
+    attributes:
+      label: Actual behavior and sanitized logs
+    validations:
+      required: true
+  - type: input
+    id: system
+    attributes:
+      label: macOS version and CPU architecture
+      placeholder: macOS 15, Apple Silicon arm64
+    validations:
+      required: true
+  - type: checkboxes
+    id: checks
+    attributes:
+      label: Safety checks
+      options:
+        - label: I removed credentials, signed query strings, private URLs, and personal data.
+          required: true
+        - label: I am authorized to access the media used to reproduce this issue.
+          required: true
