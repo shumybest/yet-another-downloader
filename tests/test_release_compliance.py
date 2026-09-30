@@ -94,6 +94,13 @@ class ReleaseComplianceTests(unittest.TestCase):
         self.assertIn('export PYTHONNOUSERSITE=1', package_script)
         self.assertIn('run(str(python), "-I", "-c", program)', compliance_script)
 
+    def test_release_proxy_bypasses_loopback_services(self):
+        package_script = (ROOT / 'scripts/package-release.sh').read_text()
+
+        self.assertIn('127.0.0.1,localhost,::1', package_script)
+        self.assertIn('export NO_PROXY=', package_script)
+        self.assertIn('export no_proxy=', package_script)
+
     def test_release_collects_python_build_tool_sources_and_runtime_license(self):
         compliance_script = (ROOT / 'scripts/release_compliance.py').read_text()
 
