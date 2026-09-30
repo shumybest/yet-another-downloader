@@ -191,6 +191,13 @@ def formula_primary_sha256(formula_text: str) -> str | None:
     return match.group(1).lower() if match else None
 
 
+def primary_source_matches_formula(formula_text: str, source: Path) -> bool:
+    if source.is_dir():
+        return True
+    expected_sha256 = formula_primary_sha256(formula_text)
+    return expected_sha256 is None or sha256_file(source) == expected_sha256
+
+
 def is_ignorable_homebrew_fetch_failure(name: str, formula_text: str, log: str) -> bool:
     match = re.search(
         rf"Resource\s+{re.escape(name)}--([^\s]+).*?Resource reports different checksum",
@@ -307,11 +314,11 @@ def collect_homebrew_materials(
             ).resolve()
             if not cached.exists() or not cached.is_relative_to(source_root.resolve()):
                 raise RuntimeError(f"Could not locate fetched source for {name} {version}")
-            expected_sha256 = formula_primary_sha256(formula.read_text(errors="replace"))
-            if expected_sha256 and sha256_file(cached) != expected_sha256:
+            formula_text = formula.read_text(errors="replace")
+            if not primary_source_matches_formula(formula_text, cached):
                 raise RuntimeError(f"Primary source checksum mismatch for {name} {version}")
             if result.returncode:
-                if not is_ignorable_homebrew_fetch_failure(name, formula.read_text(), fetch_log):
+                if not is_ignorable_homebrew_fetch_failure(name, formula_text, fetch_log):
                     raise RuntimeError(f"Homebrew source fetch failed for {name} {version}")
                 fetch_warning = (
                     "Homebrew rejected a known non-build test resource whose upstream content "

@@ -1,4 +1,5 @@
 import unittest
+import hashlib
 import subprocess
 import tempfile
 from pathlib import Path
@@ -7,6 +8,7 @@ from scripts.release_compliance import (
     archive_homebrew_vcs_sources,
     cellar_coordinates,
     is_ignorable_homebrew_fetch_failure,
+    primary_source_matches_formula,
     release_asset_names,
     reset_output_preserving_source_cache,
     validate_formula_records,
@@ -215,6 +217,23 @@ end
                 'libogg', build_resource_formula, log
             )
         )
+
+    def test_primary_source_checksum_accepts_git_checkout_and_checks_archive(self):
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            root = Path(temporary_directory)
+            checkout = root / 'source--git'
+            checkout.mkdir()
+            archive = root / 'source.tar.gz'
+            archive.write_bytes(b'source')
+            digest = hashlib.sha256(b'source').hexdigest()
+
+            self.assertTrue(primary_source_matches_formula('sha256 "deadbeef"', checkout))
+            self.assertTrue(
+                primary_source_matches_formula(f'sha256 "{digest}"', archive)
+            )
+            self.assertFalse(
+                primary_source_matches_formula('sha256 "' + ('0' * 64) + '"', archive)
+            )
 
     def test_legal_staging_accepts_generated_release_materials(self):
         script = (ROOT / 'scripts/stage-legal.sh').read_text()
