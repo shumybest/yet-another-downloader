@@ -6,7 +6,9 @@ from pathlib import Path
 from scripts.release_compliance import (
     archive_homebrew_vcs_sources,
     cellar_coordinates,
+    is_ignorable_homebrew_fetch_failure,
     release_asset_names,
+    reset_output_preserving_source_cache,
     validate_formula_records,
 )
 
@@ -170,6 +172,49 @@ class ReleaseComplianceTests(unittest.TestCase):
                 records[1]['sources'], ['homebrew-sources/downloads/source.tar.gz']
             )
             self.assertEqual(vcs_records[0]['cache_directory'], 'example--git')
+
+    def test_preserves_homebrew_source_cache_between_release_attempts(self):
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            output = Path(temporary_directory) / 'compliance'
+            cache_file = output / 'homebrew-sources/downloads/source.tar.gz'
+            cache_file.parent.mkdir(parents=True)
+            cache_file.write_bytes(b'source')
+            (output / 'stale-manifest.json').write_text('{}')
+
+            reset_output_preserving_source_cache(output, True)
+
+            self.assertEqual(cache_file.read_bytes(), b'source')
+            self.assertFalse((output / 'stale-manifest.json').exists())
+
+    def test_allows_only_known_non_build_homebrew_test_resource_failure(self):
+        formula = '''
+class Libogg < Formula
+  url "https://example.test/libogg.tar.gz"
+  sha256 "deadbeef"
+  resource("oggfile") do
+    url "https://example.test/Example.ogg"
+  end
+  def install
+    system "make", "install"
+  end
+  test do
+    testpath.install resource("oggfile")
+  end
+end
+'''
+        log = 'Resource libogg--oggfile\nError: Resource reports different checksum'
+
+        self.assertTrue(is_ignorable_homebrew_fetch_failure('libogg', formula, log))
+        self.assertFalse(is_ignorable_homebrew_fetch_failure('other', formula, log))
+        build_resource_formula = formula.replace(
+            'system "make", "install"',
+            'resource("oggfile").stage\n    system "make", "install"',
+        )
+        self.assertFalse(
+            is_ignorable_homebrew_fetch_failure(
+                'libogg', build_resource_formula, log
+            )
+        )
 
     def test_legal_staging_accepts_generated_release_materials(self):
         script = (ROOT / 'scripts/stage-legal.sh').read_text()

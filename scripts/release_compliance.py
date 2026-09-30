@@ -23,6 +23,7 @@ except ModuleNotFoundError:
 
 
 LICENSE_BASENAMES = re.compile(r"^(copying|copyright|license|notice)(\..*)?$", re.I)
+IGNORABLE_TEST_RESOURCES = {("libogg", "oggfile")}
 
 
 def run(*args: str, cwd: Path | None = None, env: dict[str, str] | None = None) -> str:
@@ -42,6 +43,22 @@ def sha256_file(path: Path) -> str:
         for chunk in iter(lambda: handle.read(1024 * 1024), b""):
             digest.update(chunk)
     return digest.hexdigest()
+
+
+def reset_output_preserving_source_cache(output: Path, preserve: bool) -> None:
+    source_cache = output / "homebrew-sources"
+    saved_cache = output.parent / f".{output.name}-homebrew-sources-cache"
+    if preserve and source_cache.exists():
+        if saved_cache.exists():
+            shutil.rmtree(saved_cache)
+        source_cache.rename(saved_cache)
+    if output.exists():
+        shutil.rmtree(output)
+    output.mkdir(parents=True)
+    if preserve and saved_cache.exists():
+        saved_cache.rename(source_cache)
+    elif saved_cache.exists():
+        shutil.rmtree(saved_cache)
 
 
 def cellar_coordinates(path: Path) -> tuple[str, str] | None:
@@ -169,6 +186,31 @@ def formula_license(formula: Path) -> str:
     return match.group(1) if match else "SEE-FORMULA"
 
 
+def formula_primary_sha256(formula_text: str) -> str | None:
+    match = re.search(r'^\s*sha256\s+["\']([0-9a-fA-F]{64})["\']', formula_text, re.M)
+    return match.group(1).lower() if match else None
+
+
+def is_ignorable_homebrew_fetch_failure(name: str, formula_text: str, log: str) -> bool:
+    match = re.search(
+        rf"Resource\s+{re.escape(name)}--([^\s]+).*?Resource reports different checksum",
+        log,
+        re.S,
+    )
+    if not match:
+        return False
+    resource = match.group(1)
+    if (name, resource) not in IGNORABLE_TEST_RESOURCES:
+        return False
+    resource_use = f'resource("{resource}")'
+    install_block = formula_text.find("def install")
+    test_block = formula_text.find("test do")
+    if install_block >= 0 and test_block > install_block:
+        if resource_use in formula_text[install_block:test_block]:
+            return False
+    return test_block >= 0 and formula_text.find(resource_use, test_block) >= test_block
+
+
 def archive_homebrew_vcs_sources(
     source_root: Path, output: Path, records: list[dict[str, Any]]
 ) -> list[dict[str, str]]:
@@ -242,6 +284,7 @@ def collect_homebrew_materials(
         copied_licenses = copy_license_candidates(prefix, license_dir)
 
         source_files: list[str] = []
+        fetch_warning: str | None = None
         if fetch_sources:
             env = os.environ.copy()
             env["HOMEBREW_CACHE"] = str(source_root)
@@ -251,9 +294,8 @@ def collect_homebrew_materials(
                 text=True,
                 capture_output=True,
             )
-            (component_dir / "fetch.log").write_text(result.stdout + result.stderr)
-            if result.returncode:
-                raise RuntimeError(f"Homebrew source fetch failed for {name} {version}")
+            fetch_log = result.stdout + result.stderr
+            (component_dir / "fetch.log").write_text(fetch_log)
             cached = Path(
                 run(
                     "brew",
@@ -265,6 +307,19 @@ def collect_homebrew_materials(
             ).resolve()
             if not cached.exists() or not cached.is_relative_to(source_root.resolve()):
                 raise RuntimeError(f"Could not locate fetched source for {name} {version}")
+            expected_sha256 = formula_primary_sha256(formula.read_text(errors="replace"))
+            if expected_sha256 and sha256_file(cached) != expected_sha256:
+                raise RuntimeError(f"Primary source checksum mismatch for {name} {version}")
+            if result.returncode:
+                if not is_ignorable_homebrew_fetch_failure(name, formula.read_text(), fetch_log):
+                    raise RuntimeError(f"Homebrew source fetch failed for {name} {version}")
+                fetch_warning = (
+                    "Homebrew rejected a known non-build test resource whose upstream content "
+                    "changed; the exact primary source passed its formula checksum. See fetch.log."
+                )
+                for candidate in source_root.iterdir():
+                    if candidate.is_symlink() and not candidate.exists():
+                        candidate.unlink()
             source_files = [str(cached.relative_to(output))]
 
         records.append(
@@ -276,6 +331,7 @@ def collect_homebrew_materials(
                 "receipt": str(receipt_target.relative_to(output)),
                 "licenses": [str((license_dir / item).relative_to(output)) for item in copied_licenses],
                 "sources": source_files,
+                "fetch_warning": fetch_warning,
             }
         )
     if fetch_sources:
@@ -432,9 +488,7 @@ def write_json(path: Path, value: Any) -> None:
 def generate(args: argparse.Namespace) -> None:
     root = args.project_root.resolve()
     output = args.output.resolve()
-    if output.exists():
-        shutil.rmtree(output)
-    output.mkdir(parents=True)
+    reset_output_preserving_source_cache(output, args.fetch_sources)
 
     binaries = [args.ffmpeg.resolve(), args.ffprobe.resolve()]
     files, graph = discover_macho_dependencies(binaries)
