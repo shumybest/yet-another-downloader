@@ -4,6 +4,8 @@ import subprocess
 import tempfile
 from pathlib import Path
 
+import scripts.release_compliance as release_compliance
+
 from scripts.release_compliance import (
     archive_homebrew_vcs_sources,
     cellar_coordinates,
@@ -266,6 +268,47 @@ end
                     formula.replace('end', 'resource("fixture") do\n  end\nend'),
                     root / 'other-cache',
                 )
+
+    def test_recovers_failed_formula_resource_from_installed_prefix_with_verified_checksum(self):
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            root = Path(temporary_directory)
+            prefix = root / 'Cellar/tesseract/5.5.1'
+            installed = prefix / 'share/tessdata/snum.traineddata'
+            installed.parent.mkdir(parents=True)
+            installed.write_bytes(b'verified trained data')
+            digest = hashlib.sha256(installed.read_bytes()).hexdigest()
+            formula = f'''\
+class Tesseract < Formula
+  url "https://example.test/tesseract.tar.gz"
+  sha256 "{'0' * 64}"
+  resource "snum" do
+    url "https://example.test/Training%20Tesseract/snum.traineddata"
+    sha256 "{digest}"
+  end
+end
+'''
+            log = '''\
+✘ Resource tesseract--snum
+Error: Failed to download resource "tesseract--snum"
+Download failed: https://example.test/snum.traineddata
+curl: (56) The requested URL returned error: 404
+'''
+
+            recovered = release_compliance.recover_failed_formula_resources(
+                'tesseract', '5.5.1', formula, log, prefix, root / 'cache'
+            )
+
+            self.assertEqual(len(recovered), 1)
+            self.assertEqual(recovered[0].read_bytes(), installed.read_bytes())
+            self.assertEqual(hashlib.sha256(recovered[0].read_bytes()).hexdigest(), digest)
+
+            installed.write_bytes(b'wrong resource')
+            self.assertEqual(
+                release_compliance.recover_failed_formula_resources(
+                    'tesseract', '5.5.1', formula, log, prefix, root / 'other-cache'
+                ),
+                [],
+            )
 
     def test_legal_staging_accepts_generated_release_materials(self):
         script = (ROOT / 'scripts/stage-legal.sh').read_text()

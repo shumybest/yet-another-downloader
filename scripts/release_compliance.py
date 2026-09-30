@@ -254,6 +254,67 @@ def is_ignorable_homebrew_fetch_failure(name: str, formula_text: str, log: str) 
     return test_block >= 0 and formula_text.find(resource_use, test_block) >= test_block
 
 
+def recover_failed_formula_resources(
+    name: str,
+    version: str,
+    formula_text: str,
+    log: str,
+    prefix: Path,
+    source_root: Path,
+) -> list[Path]:
+    failed = re.findall(
+        rf'^Error: Failed to download resource "{re.escape(name)}--([^"\r\n]+)"$',
+        log,
+        re.M,
+    )
+    errors = re.findall(r'^Error:\s+(.+)$', log, re.M)
+    if not failed or len(errors) != len(failed):
+        return []
+
+    blocks = {
+        match.group("name"): match.group("body")
+        for match in re.finditer(
+            r'^[ \t]*resource[ \t]*(?:\([ \t]*)?["\'](?P<name>[^"\']+)["\']'
+            r'[ \t]*\)?[ \t]+do[ \t]*$'
+            r'(?P<body>.*?)^[ \t]*end[ \t]*$',
+            formula_text,
+            re.M | re.S,
+        )
+    }
+    planned: list[tuple[Path, Path]] = []
+    for resource_name in failed:
+        block = blocks.get(resource_name)
+        if block is None:
+            return []
+        url_match = re.search(r'^\s*url\s+["\']([^"\']+)', block, re.M)
+        sha_match = re.search(r'^\s*sha256\s+["\']([0-9a-fA-F]{64})["\']', block, re.M)
+        if not url_match or not sha_match:
+            return []
+        filename = Path(urllib.parse.unquote(urllib.parse.urlparse(url_match.group(1)).path)).name
+        expected_sha256 = sha_match.group(1).lower()
+        matches = [
+            candidate
+            for candidate in sorted(prefix.rglob(filename))
+            if candidate.is_file() and sha256_file(candidate) == expected_sha256
+        ]
+        if not matches:
+            return []
+        safe_resource = re.sub(r"[^A-Za-z0-9._-]+", "-", resource_name)
+        destination = (
+            source_root
+            / "downloads"
+            / f"installed--{name}-{version}--{safe_resource}--{filename}"
+        )
+        planned.append((matches[0], destination))
+
+    recovered: list[Path] = []
+    for source, destination in planned:
+        destination.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copy2(source, destination)
+        recovered.append(destination)
+    return recovered
+
+
 def archive_homebrew_vcs_sources(
     source_root: Path, output: Path, records: list[dict[str, Any]]
 ) -> list[dict[str, str]]:
@@ -328,6 +389,7 @@ def collect_homebrew_materials(
 
         source_files: list[str] = []
         fetch_warning: str | None = None
+        recovered_resources: list[Path] = []
         if fetch_sources:
             env = os.environ.copy()
             env["HOMEBREW_CACHE"] = str(source_root)
@@ -364,13 +426,27 @@ def collect_homebrew_materials(
                 raise RuntimeError(f"Primary source checksum mismatch for {name} {version}")
             if result.returncode:
                 fallback_used = "Primary source downloaded with system curl" in fetch_log
-                if not fallback_used and not is_ignorable_homebrew_fetch_failure(name, formula_text, fetch_log):
+                recovered_resources = recover_failed_formula_resources(
+                    name, version, formula_text, fetch_log, prefix, source_root
+                )
+                if (
+                    not fallback_used
+                    and not recovered_resources
+                    and not is_ignorable_homebrew_fetch_failure(name, formula_text, fetch_log)
+                ):
                     raise RuntimeError(f"Homebrew source fetch failed for {name} {version}")
                 if fallback_used:
                     fetch_warning = (
                         "The historical formula required Homebrew curl, which is unavailable; the "
                         "single primary source was downloaded with system curl and passed its "
                         "formula SHA-256. See fetch.log."
+                    )
+                elif recovered_resources:
+                    names = ", ".join(path.name for path in recovered_resources)
+                    fetch_warning = (
+                        "Historical formula resource URLs were unavailable; exact installed "
+                        f"resources ({names}) were copied after matching their formula SHA-256. "
+                        "See fetch.log."
                     )
                 else:
                     fetch_warning = (
@@ -380,7 +456,9 @@ def collect_homebrew_materials(
                 for candidate in source_root.iterdir():
                     if candidate.is_symlink() and not candidate.exists():
                         candidate.unlink()
-            source_files = [str(cached.relative_to(output))]
+            source_files = [
+                str(path.relative_to(output)) for path in [cached, *recovered_resources]
+            ]
 
         records.append(
             {
