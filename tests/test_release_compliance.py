@@ -95,6 +95,12 @@ class ReleaseComplianceTests(unittest.TestCase):
         self.assertIn("--exclude='homebrew-sources/'", script)
         self.assertIn("--exclude='python-sources/'", script)
 
+    def test_release_verifier_checks_tauri_resource_layout(self):
+        script = (ROOT / 'scripts/verify-release.sh').read_text()
+
+        self.assertIn('$RESOURCES/resources/chrome-extension/manifest.json', script)
+        self.assertIn('$RESOURCES/resources/legal/PROJECT-GPL-3.0-or-later.txt', script)
+
     def test_release_python_environment_ignores_user_site_packages(self):
         package_script = (ROOT / 'scripts/package-release.sh').read_text()
         compliance_script = (ROOT / 'scripts/release_compliance.py').read_text()

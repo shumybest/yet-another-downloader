@@ -17,12 +17,12 @@ codesign --verify --deep --strict --verbose=2 "$APP"
 for required in \
   "$RESOURCES/binaries/ffmpeg" \
   "$RESOURCES/binaries/ffprobe" \
-  "$RESOURCES/chrome-extension/manifest.json" \
-  "$RESOURCES/legal/PROJECT-GPL-3.0-or-later.txt" \
-  "$RESOURCES/legal/THIRD_PARTY_NOTICES.md" \
-  "$RESOURCES/legal/RELEASE-MANIFEST.json" \
-  "$RESOURCES/legal/MACHO-DEPENDENCIES.json" \
-  "$RESOURCES/legal/SOURCE-OFFER.txt" \
+  "$RESOURCES/resources/chrome-extension/manifest.json" \
+  "$RESOURCES/resources/legal/PROJECT-GPL-3.0-or-later.txt" \
+  "$RESOURCES/resources/legal/THIRD_PARTY_NOTICES.md" \
+  "$RESOURCES/resources/legal/RELEASE-MANIFEST.json" \
+  "$RESOURCES/resources/legal/MACHO-DEPENDENCIES.json" \
+  "$RESOURCES/resources/legal/SOURCE-OFFER.txt" \
   "$COMPLIANCE/HOMEBREW-COMPONENTS.json"; do
   [ -e "$required" ] || { echo "Required release file missing: $required" >&2; exit 1; }
 done
