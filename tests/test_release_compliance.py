@@ -78,6 +78,9 @@ class ReleaseComplianceTests(unittest.TestCase):
             with self.subTest(required=required):
                 self.assertIn(required, script)
 
+        self.assertIn('if [ "${1:-}" = "--" ]; then', script)
+        self.assertIn('shift', script)
+
     def test_release_script_keeps_homebrew_sources_out_of_app_bundle(self):
         script = (ROOT / 'scripts/package-release.sh').read_text()
 

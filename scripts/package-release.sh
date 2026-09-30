@@ -2,6 +2,9 @@
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
+if [ "${1:-}" = "--" ]; then
+  shift
+fi
 VERSION="${1:-v0.1.0}"
 ARCHITECTURE="$(uname -m)"
 CONDA_ENV="${M3U8_BRIDGE_RELEASE_CONDA_ENV:-m3u8-bridge-release}"
