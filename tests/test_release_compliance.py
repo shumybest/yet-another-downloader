@@ -7,6 +7,7 @@ from pathlib import Path
 from scripts.release_compliance import (
     archive_homebrew_vcs_sources,
     cellar_coordinates,
+    download_formula_primary_source,
     is_ignorable_homebrew_fetch_failure,
     primary_source_matches_formula,
     release_asset_names,
@@ -239,6 +240,32 @@ end
             self.assertFalse(
                 primary_source_matches_formula('sha256 "' + ('0' * 64) + '"', archive)
             )
+
+    def test_downloads_simple_formula_source_with_verified_checksum(self):
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            root = Path(temporary_directory)
+            upstream = root / 'upstream.tar.gz'
+            upstream.write_bytes(b'source archive')
+            digest = hashlib.sha256(upstream.read_bytes()).hexdigest()
+            formula = f'''\
+class Example < Formula
+  url "{upstream.as_uri()}"
+  sha256 "{digest}"
+end
+'''
+
+            downloaded = download_formula_primary_source(
+                'example', '1.0.0', formula, root / 'cache'
+            )
+
+            self.assertEqual(downloaded.read_bytes(), upstream.read_bytes())
+            with self.assertRaisesRegex(RuntimeError, 'complex formula'):
+                download_formula_primary_source(
+                    'example',
+                    '1.0.0',
+                    formula.replace('end', 'resource("fixture") do\n  end\nend'),
+                    root / 'other-cache',
+                )
 
     def test_legal_staging_accepts_generated_release_materials(self):
         script = (ROOT / 'scripts/stage-legal.sh').read_text()

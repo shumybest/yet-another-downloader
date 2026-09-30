@@ -12,6 +12,7 @@ import shutil
 import subprocess
 import sys
 import tarfile
+import urllib.parse
 from collections import deque
 from pathlib import Path
 from typing import Any
@@ -198,6 +199,41 @@ def primary_source_matches_formula(formula_text: str, source: Path) -> bool:
     return expected_sha256 is None or sha256_file(source) == expected_sha256
 
 
+def download_formula_primary_source(
+    name: str, version: str, formula_text: str, source_root: Path
+) -> Path:
+    if re.search(r'^\s*(resource|patch)\b', formula_text, re.M):
+        raise RuntimeError(f"Cannot use primary-source fallback for complex formula {name} {version}")
+    url_match = re.search(r'^\s*url\s+["\']([^"\']+)', formula_text, re.M)
+    expected_sha256 = formula_primary_sha256(formula_text)
+    if not url_match or not expected_sha256:
+        raise RuntimeError(f"Formula {name} {version} lacks a verifiable primary source")
+    url = url_match.group(1)
+    filename = Path(urllib.parse.urlparse(url).path).name or f"{name}-{version}.source"
+    destination = source_root / "downloads" / f"manual--{name}-{version}--{filename}"
+    destination.parent.mkdir(parents=True, exist_ok=True)
+    subprocess.run(
+        [
+            "curl",
+            "--location",
+            "--fail-with-body",
+            "--retry",
+            "5",
+            "--retry-all-errors",
+            "--connect-timeout",
+            "20",
+            "--output",
+            str(destination),
+            url,
+        ],
+        check=True,
+    )
+    if sha256_file(destination) != expected_sha256:
+        destination.unlink(missing_ok=True)
+        raise RuntimeError(f"Primary source checksum mismatch for {name} {version}")
+    return destination
+
+
 def is_ignorable_homebrew_fetch_failure(name: str, formula_text: str, log: str) -> bool:
     match = re.search(
         rf"Resource\s+{re.escape(name)}--([^\s]+).*?Resource reports different checksum",
@@ -303,27 +339,44 @@ def collect_homebrew_materials(
             )
             fetch_log = result.stdout + result.stderr
             (component_dir / "fetch.log").write_text(fetch_log)
-            cached = Path(
-                run(
-                    "brew",
-                    "--cache",
-                    "--build-from-source",
-                    str(formula),
-                    env=env,
-                ).strip()
-            ).resolve()
+            try:
+                cached = Path(
+                    run(
+                        "brew",
+                        "--cache",
+                        "--build-from-source",
+                        str(formula),
+                        env=env,
+                    ).strip()
+                ).resolve()
+            except subprocess.CalledProcessError:
+                if "Homebrew-installed `curl` is not installed" not in fetch_log:
+                    raise
+                cached = download_formula_primary_source(
+                    name, version, formula.read_text(errors="replace"), source_root
+                ).resolve()
+                fetch_log += "\nPrimary source downloaded with system curl and SHA-256 verified.\n"
+                (component_dir / "fetch.log").write_text(fetch_log)
             if not cached.exists() or not cached.is_relative_to(source_root.resolve()):
                 raise RuntimeError(f"Could not locate fetched source for {name} {version}")
             formula_text = formula.read_text(errors="replace")
             if not primary_source_matches_formula(formula_text, cached):
                 raise RuntimeError(f"Primary source checksum mismatch for {name} {version}")
             if result.returncode:
-                if not is_ignorable_homebrew_fetch_failure(name, formula_text, fetch_log):
+                fallback_used = "Primary source downloaded with system curl" in fetch_log
+                if not fallback_used and not is_ignorable_homebrew_fetch_failure(name, formula_text, fetch_log):
                     raise RuntimeError(f"Homebrew source fetch failed for {name} {version}")
-                fetch_warning = (
-                    "Homebrew rejected a known non-build test resource whose upstream content "
-                    "changed; the exact primary source passed its formula checksum. See fetch.log."
-                )
+                if fallback_used:
+                    fetch_warning = (
+                        "The historical formula required Homebrew curl, which is unavailable; the "
+                        "single primary source was downloaded with system curl and passed its "
+                        "formula SHA-256. See fetch.log."
+                    )
+                else:
+                    fetch_warning = (
+                        "Homebrew rejected a known non-build test resource whose upstream content "
+                        "changed; the exact primary source passed its formula checksum. See fetch.log."
+                    )
                 for candidate in source_root.iterdir():
                     if candidate.is_symlink() and not candidate.exists():
                         candidate.unlink()
