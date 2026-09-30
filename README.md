@@ -11,6 +11,10 @@
 [![CI](https://github.com/shumybest/yet-another-downloader/actions/workflows/ci.yml/badge.svg)](https://github.com/shumybest/yet-another-downloader/actions/workflows/ci.yml)
 [![License: GPL v3+](https://img.shields.io/badge/License-GPLv3%2B-blue.svg)](LICENSE)
 
+<p align="center">
+  <img src="docs/images/desktop-overview.png" width="1200" alt="yet another downloader desktop app showing engine health, live download speed, active tasks, progress, and download history" />
+</p>
+
 ## What it does
 
 - Detects HLS, MPEG-DASH, MP4, WebM, MOV, FLV, MPEG, OGV, and 3GP resources requested by a browser tab.
@@ -19,6 +23,14 @@
 - Normalizes output to a playable MP4 when stream copying is not compatible with common macOS players or Quick Look.
 - Keeps download history locally and never persists captured cookies, authorization headers, or full signed media URLs.
 - Bundles a Chrome extension installation flow into the desktop app.
+
+## Browser capture
+
+The Chrome extension attaches the capture panel to the matching video instead of the page corner. It groups the available renditions and shows resolution, bitrate, codec, duration, and source details before a task is sent to the desktop app.
+
+<p align="center">
+  <img src="docs/images/chrome-capture.png" width="1200" alt="Chrome extension capture panel attached to a video with 4K, 1080p, and 720p HLS renditions" />
+</p>
 
 The project is currently macOS-focused. The latest verified release build is Intel `x86_64`; Apple Silicon, Developer ID signing, and notarization still require separate release validation.
 
