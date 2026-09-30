@@ -207,6 +207,11 @@ end
         log = 'Resource libogg--oggfile\nError: Resource reports different checksum'
 
         self.assertTrue(is_ignorable_homebrew_fetch_failure('libogg', formula, log))
+        self.assertTrue(
+            is_ignorable_homebrew_fetch_failure(
+                'libvorbis', formula.replace('Libogg', 'Libvorbis'), log.replace('libogg', 'libvorbis')
+            )
+        )
         self.assertFalse(is_ignorable_homebrew_fetch_failure('other', formula, log))
         build_resource_formula = formula.replace(
             'system "make", "install"',

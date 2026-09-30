@@ -23,7 +23,7 @@ except ModuleNotFoundError:
 
 
 LICENSE_BASENAMES = re.compile(r"^(copying|copyright|license|notice)(\..*)?$", re.I)
-IGNORABLE_TEST_RESOURCES = {("libogg", "oggfile")}
+IGNORABLE_TEST_RESOURCES = {("libogg", "oggfile"), ("libvorbis", "oggfile")}
 
 
 def run(*args: str, cwd: Path | None = None, env: dict[str, str] | None = None) -> str:
