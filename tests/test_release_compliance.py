@@ -3,6 +3,7 @@ import hashlib
 import subprocess
 import tempfile
 from pathlib import Path
+from unittest.mock import patch
 
 import scripts.release_compliance as release_compliance
 
@@ -309,6 +310,40 @@ curl: (56) The requested URL returned error: 404
                 ),
                 [],
             )
+
+    def test_uses_verified_direct_download_when_brew_cannot_evaluate_simple_legacy_formula(self):
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            root = Path(temporary_directory)
+            upstream = root / 'libtheora-1.1.1.tar.bz2'
+            upstream.write_bytes(b'legacy formula source')
+            digest = hashlib.sha256(upstream.read_bytes()).hexdigest()
+            formula = f'''\
+class Theora < Formula
+  url "{upstream.as_uri()}"
+  sha256 "{digest}"
+  devel do
+    url "https://example.test/devel.tar.xz"
+  end
+end
+'''
+
+            with patch.object(
+                release_compliance,
+                'run',
+                side_effect=subprocess.CalledProcessError(1, ['brew', '--cache']),
+            ):
+                source, used_fallback = release_compliance.resolve_formula_primary_source(
+                    'theora',
+                    '1.1.1',
+                    formula,
+                    root / 'cache',
+                    root / 'theora.rb',
+                    {},
+                )
+
+            self.assertTrue(used_fallback)
+            self.assertEqual(source.read_bytes(), upstream.read_bytes())
+            self.assertEqual(hashlib.sha256(source.read_bytes()).hexdigest(), digest)
 
     def test_legal_staging_accepts_generated_release_materials(self):
         script = (ROOT / 'scripts/stage-legal.sh').read_text()

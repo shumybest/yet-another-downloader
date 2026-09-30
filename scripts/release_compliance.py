@@ -234,6 +234,32 @@ def download_formula_primary_source(
     return destination
 
 
+def resolve_formula_primary_source(
+    name: str,
+    version: str,
+    formula_text: str,
+    source_root: Path,
+    formula: Path,
+    env: dict[str, str],
+) -> tuple[Path, bool]:
+    try:
+        cached = Path(
+            run(
+                "brew",
+                "--cache",
+                "--build-from-source",
+                str(formula),
+                env=env,
+            ).strip()
+        ).resolve()
+        return cached, False
+    except subprocess.CalledProcessError:
+        return (
+            download_formula_primary_source(name, version, formula_text, source_root).resolve(),
+            True,
+        )
+
+
 def is_ignorable_homebrew_fetch_failure(name: str, formula_text: str, log: str) -> bool:
     match = re.search(
         rf"Resource\s+{re.escape(name)}--([^\s]+).*?Resource reports different checksum",
@@ -401,27 +427,15 @@ def collect_homebrew_materials(
             )
             fetch_log = result.stdout + result.stderr
             (component_dir / "fetch.log").write_text(fetch_log)
-            try:
-                cached = Path(
-                    run(
-                        "brew",
-                        "--cache",
-                        "--build-from-source",
-                        str(formula),
-                        env=env,
-                    ).strip()
-                ).resolve()
-            except subprocess.CalledProcessError:
-                if "Homebrew-installed `curl` is not installed" not in fetch_log:
-                    raise
-                cached = download_formula_primary_source(
-                    name, version, formula.read_text(errors="replace"), source_root
-                ).resolve()
+            formula_text = formula.read_text(errors="replace")
+            cached, used_primary_fallback = resolve_formula_primary_source(
+                name, version, formula_text, source_root, formula, env
+            )
+            if used_primary_fallback:
                 fetch_log += "\nPrimary source downloaded with system curl and SHA-256 verified.\n"
                 (component_dir / "fetch.log").write_text(fetch_log)
             if not cached.exists() or not cached.is_relative_to(source_root.resolve()):
                 raise RuntimeError(f"Could not locate fetched source for {name} {version}")
-            formula_text = formula.read_text(errors="replace")
             if not primary_source_matches_formula(formula_text, cached):
                 raise RuntimeError(f"Primary source checksum mismatch for {name} {version}")
             if result.returncode:
