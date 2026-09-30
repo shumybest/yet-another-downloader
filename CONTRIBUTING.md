@@ -41,4 +41,4 @@ The sign-off certifies that you have the right to submit the contribution under 
 
 ## License
 
-By contributing original project code, you agree that it is licensed under MIT. Do not submit third-party code unless its provenance and license are documented and compatible. The pinned yt-dlp submodule and FFmpeg binaries retain their upstream licenses; see [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).
+By contributing original project code, you agree that it is licensed under GPL-3.0-or-later. Do not submit third-party code unless its provenance and license are documented and GPL-compatible. The pinned yt-dlp submodule and FFmpeg binaries retain their upstream licenses; see [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).

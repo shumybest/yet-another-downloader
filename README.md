@@ -9,7 +9,7 @@
 </p>
 
 [![CI](https://github.com/shumybest/yet-another-downloader/actions/workflows/ci.yml/badge.svg)](https://github.com/shumybest/yet-another-downloader/actions/workflows/ci.yml)
-[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
+[![License: GPL v3+](https://img.shields.io/badge/License-GPLv3%2B-blue.svg)](LICENSE)
 
 ## What it does
 
@@ -108,4 +108,4 @@ This project has been substantially developed with AI coding assistance. Reposit
 
 ## License
 
-Original project source is licensed under the [MIT License](LICENSE). Third-party projects and bundled binaries retain their own licenses; see [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md). In particular, an FFmpeg build with GPL components cannot be redistributed under MIT alone.
+Original project source is licensed under [GPL-3.0-or-later](LICENSE). Third-party projects and bundled binaries retain their own licenses; see [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md). Binary releases include a corresponding-source archive and dependency manifests for the bundled GPL-enabled FFmpeg distribution.

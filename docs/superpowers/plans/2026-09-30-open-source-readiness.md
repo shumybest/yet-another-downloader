@@ -1,4 +1,6 @@
-# Open Source Readiness Implementation Plan
+# Open Source Readiness Implementation Plan (Superseded)
+
+> Status: superseded historical record. Do not use its MIT-only release decisions for current builds. The project was subsequently relicensed under GPL-3.0-or-later for bundled GPL binary releases.
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox syntax for tracking.
 

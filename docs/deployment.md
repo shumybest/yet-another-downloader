@@ -106,7 +106,18 @@ cargo tauri build --bundles app
 
 脚本使用 PyInstaller 打包 Python engine 和 yt-dlp，复制 ffmpeg/ffprobe，并在 macOS 上递归收集所有非系统 Mach-O dylib、改写为包内 `@loader_path`。脚本会清理 `target/debug`、`target/release` 中旧的 Tauri 二进制资源副本，避免 Homebrew dylib 的只读权限导致重复构建失败。扩展生产构建和 `LICENSE`、`THIRD_PARTY_NOTICES.md`、yt-dlp Unlicense、FFmpeg GPLv3 文本会自动复制到 Tauri resources。当前 Intel 构建包含 92 个 ffmpeg 依赖库，不要求目标机器安装 Homebrew ffmpeg、Python 或 yt-dlp。
 
-> **公开二进制发布门禁：** 当前 Homebrew FFmpeg 启用了 GPL 组件。上传 `.app`、`.dmg` 或 `.zip` 前，发布者必须完成 `THIRD_PARTY_NOTICES.md` 中列出的完整许可证、构建配置、动态库许可和对应源码义务。仅附带 MIT 或 GPL 文本并不充分。当前仓库 CI 不自动发布二进制。
+> **公开二进制发布门禁：** 当前 Homebrew FFmpeg 启用了 GPL 组件。上传 `.app`、`.dmg` 或 `.zip` 前，必须运行发行脚本生成完整许可证、构建配置、动态库清单、对应源码和校验文件。仅附带 GPL 文本并不充分。当前仓库 CI 不自动发布二进制。
+
+正式生成 `v0.1.0` Intel 发行资产：
+
+```sh
+export HTTP_PROXY=http://127.0.0.1:7890
+export HTTPS_PROXY=http://127.0.0.1:7890
+export ALL_PROXY=http://127.0.0.1:7890
+pnpm release:package -- v0.1.0
+```
+
+脚本要求 Git 工作区干净，使用隔离的 `m3u8-bridge-release` Conda 环境并禁用 Python user-site，生成依赖清单、Python/PyInstaller 构建材料和 Homebrew 对应源码，构建并 ad-hoc 签名应用，最后在 `release/v0.1.0` 生成 ZIP、DMG、对应源码归档和 `SHA256SUMS.txt`。该版本未经 Apple notarization，应作为 GitHub pre-release 发布。
 
 无 Apple Developer ID 时可对本机发布副本做 ad-hoc 签名：
 

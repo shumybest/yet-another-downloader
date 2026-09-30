@@ -14,7 +14,7 @@ Audit date: 2026-09-30
 
 ## Residual release gates
 
-- Do not publish the current locally generated `.app` or `.zip` as an MIT-only binary. The tested FFmpeg build enables GPL components and requires a complete binary-distribution compliance process described in `THIRD_PARTY_NOTICES.md`.
+- The project was relicensed to GPL-3.0-or-later for binary publication. The tested FFmpeg build enables GPL components and every release still requires the complete binary-distribution compliance process described in `THIRD_PARTY_NOTICES.md`.
 - Apple Developer ID signing and notarization are not configured.
 - Only Intel `x86_64` packaging has been verified; Apple Silicon needs a separate native build and test.
 - GitHub repository settings such as private vulnerability reporting, Discussions, branch protection, required checks, secret scanning, and Dependabot alerts must be enabled after the repository exists on GitHub.

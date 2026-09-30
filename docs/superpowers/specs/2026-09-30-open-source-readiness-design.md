@@ -1,4 +1,6 @@
-# Open Source Readiness Design
+# Open Source Readiness Design (Superseded)
+
+> Status: superseded historical record. Do not use its MIT-only release decisions for current builds. The project was subsequently relicensed under GPL-3.0-or-later; see `2026-09-30-gpl-binary-release-design.md`.
 
 ## Goal
 
