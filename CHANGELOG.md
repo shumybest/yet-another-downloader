@@ -4,6 +4,8 @@ All notable changes to this project are documented here. The format follows [Kee
 
 ## [Unreleased]
 
+## [0.1.1] - 2026-10-01
+
 ### Added
 
 - Public contribution, security, support, AI-agent, and repository governance documentation.
@@ -29,5 +31,6 @@ All notable changes to this project are documented here. The format follows [Kee
 - yt-dlp and FFmpeg download, normalization, validation, proxy, cancellation, retry, and stall protection.
 - Packaged extension installation and browser-to-desktop activation.
 
-[Unreleased]: https://github.com/shumybest/yet-another-downloader/compare/v0.1.0...HEAD
+[Unreleased]: https://github.com/shumybest/yet-another-downloader/compare/v0.1.1...HEAD
+[0.1.1]: https://github.com/shumybest/yet-another-downloader/compare/v0.1.0...v0.1.1
 [0.1.0]: https://github.com/shumybest/yet-another-downloader/releases/tag/v0.1.0

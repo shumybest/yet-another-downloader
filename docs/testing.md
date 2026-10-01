@@ -69,10 +69,10 @@ cargo tauri build --bundles app
 公开发行前还必须运行：
 
 ```sh
-pnpm release:package -- v0.1.0
+pnpm release:package -- v0.1.1
 ```
 
-确认 `release/v0.1.0/SHA256SUMS.txt` 校验通过，并使用 `scripts/verify-release.sh` 检查签名、架构、Homebrew 路径闭包、内置扩展和法律材料。对应源码归档必须包含主项目、yt-dlp 子模块、Homebrew 配方与收据、依赖许可证、下载的源码输入及 PyInstaller 构建工具源码；`PYTHON-DEPENDENCIES.json` 不应出现用户目录中的无关 Python 包。
+确认 `release/v0.1.1/SHA256SUMS.txt` 校验通过，并使用 `scripts/verify-release.sh` 检查签名、架构、Homebrew 路径闭包、内置扩展和法律材料。对应源码归档必须包含主项目、yt-dlp 子模块、Homebrew 配方与收据、依赖许可证、下载的源码输入及 PyInstaller 构建工具源码；`PYTHON-DEPENDENCIES.json` 不应出现用户目录中的无关 Python 包。
 
 发布构建前需运行 `scripts/build-sidecar.sh`。构建后验证包内至少包含：
 

@@ -1,6 +1,6 @@
 [project]
 name = "m3u8-bridge-engine"
-version = "0.1.0"
+version = "0.1.1"
 description = "Local download engine for yet another downloader"
 readme = "README.md"
 license = "GPL-3.0-or-later"

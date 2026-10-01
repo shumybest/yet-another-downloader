@@ -1,7 +1,7 @@
 {
   "name": "m3u8-bridge",
   "private": true,
-  "version": "0.1.0",
+  "version": "0.1.1",
   "license": "GPL-3.0-or-later",
   "repository": "https://github.com/shumybest/yet-another-downloader.git",
   "engines": { "node": ">=22.6.0" },

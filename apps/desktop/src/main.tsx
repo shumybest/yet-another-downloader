@@ -237,7 +237,7 @@ function HelpDrawer({ extensionPath, busy, onPrepare, onOpenChrome, onClose }: {
         <button className="button button-ghost" disabled={!extensionPath || busy} onClick={() => void onPrepare(true)}>在 Finder 中显示</button>
       </div>
       <div className="extension-path"><span>加载目录</span><code>{extensionPath || '~/Library/Application Support/m3u8-bridge/chrome-extension'}</code></div>
-      <footer><span>版本 0.1.0</span><span>本地处理，不上传捕获凭据</span></footer>
+      <footer><span>版本 0.1.1</span><span>本地处理，不上传捕获凭据</span></footer>
     </aside>
   </div>;
 }

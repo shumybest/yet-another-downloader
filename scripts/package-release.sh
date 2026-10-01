@@ -5,7 +5,7 @@ ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 if [ "${1:-}" = "--" ]; then
   shift
 fi
-VERSION="${1:-v0.1.0}"
+VERSION="${1:-v0.1.1}"
 ARCHITECTURE="$(uname -m)"
 CONDA_ENV="${M3U8_BRIDGE_RELEASE_CONDA_ENV:-m3u8-bridge-release}"
 CONDA_BIN="${M3U8_BRIDGE_CONDA_BIN:-/usr/local/bin/conda}"
@@ -30,7 +30,7 @@ cleanup() {
 trap cleanup EXIT
 
 if ! [[ "$VERSION" =~ ^v[0-9]+\.[0-9]+\.[0-9]+([.-][A-Za-z0-9.-]+)?$ ]]; then
-  echo "Version must look like v0.1.0" >&2
+  echo "Version must look like v0.1.1" >&2
   exit 2
 fi
 if [ "$ARCHITECTURE" != "x86_64" ]; then

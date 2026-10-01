@@ -6,7 +6,7 @@
     "distDir": "../apps/desktop/dist",
     "withGlobalTauri": true
   },
-  "package": { "productName": "yet another downloader", "version": "0.1.0" },
+    "package": { "productName": "yet another downloader", "version": "0.1.1" },
   "tauri": {
     "allowlist": { "all": false },
     "bundle": {
