@@ -18,6 +18,11 @@
       "resources": ["binaries/ffmpeg", "binaries/ffprobe", "binaries/lib", "resources/chrome-extension", "resources/legal"]
     },
     "windows": [{ "title": "yet another downloader", "width": 1120, "height": 780, "minWidth": 740, "minHeight": 560 }],
+    "systemTray": {
+      "iconPath": "icons/icon.png",
+      "iconAsTemplate": false,
+      "menuOnLeftClick": false
+    },
     "security": { "csp": "default-src 'self' asset: tauri: http://tauri.localhost; img-src 'self' asset: http://tauri.localhost data:; style-src 'self' 'unsafe-inline'; script-src 'self'; connect-src 'self' http://127.0.0.1:8765" }
   }
 }

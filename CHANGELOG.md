@@ -8,11 +8,17 @@ All notable changes to this project are documented here. The format follows [Kee
 
 - Public contribution, security, support, AI-agent, and repository governance documentation.
 - CI, dependency update configuration, issue forms, pull-request template, and public-tree scanning.
+- macOS menu bar controls for restoring the desktop window, viewing aggregate live download speed, and explicitly quitting the app.
 
 ### Changed
 
 - Public product identity is now `yet another downloader` with the bundle identifier `io.github.shumybest.yet-another-downloader`.
 - New installations start with proxying disabled; existing saved proxy settings remain compatible.
+- Closing the main window now keeps active downloads running in the background.
+
+### Fixed
+
+- CI now declares the Node.js type dependency used by tests and runs the Rust job on an available macOS runner.
 
 ## [0.1.0] - 2026-09-30
 

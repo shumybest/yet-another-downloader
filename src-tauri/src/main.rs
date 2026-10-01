@@ -22,7 +22,14 @@ use std::{
 };
 #[cfg(not(debug_assertions))]
 use tauri::api::process::{Command as SidecarCommand, CommandChild};
-use tauri::{AppHandle, Manager, RunEvent, State, WindowEvent};
+use tauri::{
+    AppHandle, CustomMenuItem, Manager, RunEvent, State, SystemTray, SystemTrayEvent,
+    SystemTrayMenu, SystemTrayMenuItem, WindowEvent,
+};
+
+const TRAY_STATUS_ID: &str = "download-status";
+const TRAY_OPEN_ID: &str = "open-window";
+const TRAY_QUIT_ID: &str = "quit-app";
 
 enum EngineProcess {
     External,
@@ -61,6 +68,11 @@ struct EngineManager {
     starting: Arc<AtomicBool>,
 }
 
+#[derive(Clone, Default)]
+struct AppLifecycle {
+    quitting: Arc<AtomicBool>,
+}
+
 #[derive(Clone, Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
 struct EngineStatus {
@@ -74,6 +86,73 @@ enum EngineProbe {
     Unavailable,
     Compatible,
     Incompatible,
+}
+
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+struct TrayMetrics {
+    active: usize,
+    speed_bytes_per_second: u64,
+}
+
+fn tray_metrics_from_jobs(body: &[u8]) -> Result<TrayMetrics, serde_json::Error> {
+    let jobs = serde_json::from_slice::<Vec<serde_json::Value>>(body)?;
+    Ok(jobs
+        .into_iter()
+        .fold(TrayMetrics::default(), |mut metrics, job| {
+            let active = matches!(
+                job.get("status").and_then(serde_json::Value::as_str),
+                Some("queued" | "probing" | "downloading" | "muxing" | "validating")
+            );
+            if active {
+                metrics.active += 1;
+                metrics.speed_bytes_per_second = metrics.speed_bytes_per_second.saturating_add(
+                    job.get("speedBytesPerSecond")
+                        .and_then(serde_json::Value::as_u64)
+                        .unwrap_or(0),
+                );
+            }
+            metrics
+        }))
+}
+
+fn format_tray_speed(bytes_per_second: u64) -> String {
+    const KIB: f64 = 1024.0;
+    const MIB: f64 = KIB * 1024.0;
+    const GIB: f64 = MIB * 1024.0;
+    let bytes = bytes_per_second as f64;
+    if bytes >= GIB {
+        format!("{:.1} GiB/s", bytes / GIB)
+    } else if bytes >= MIB {
+        format!("{:.1} MiB/s", bytes / MIB)
+    } else if bytes >= KIB {
+        format!("{:.0} KiB/s", bytes / KIB)
+    } else {
+        format!("{bytes_per_second} B/s")
+    }
+}
+
+fn tray_title(metrics: TrayMetrics) -> String {
+    if metrics.active == 0 {
+        String::new()
+    } else {
+        format_tray_speed(metrics.speed_bytes_per_second)
+    }
+}
+
+fn tray_status_label(metrics: TrayMetrics) -> String {
+    if metrics.active == 0 {
+        "当前没有下载任务".to_string()
+    } else {
+        format!(
+            "下载中 · {} 个任务 · {}",
+            metrics.active,
+            format_tray_speed(metrics.speed_bytes_per_second)
+        )
+    }
+}
+
+fn should_hide_window(quitting: bool) -> bool {
+    !quitting
 }
 
 fn engine_status_from_probe(
@@ -211,6 +290,110 @@ fn probe_engine() -> EngineProbe {
     } else {
         EngineProbe::Incompatible
     }
+}
+
+fn engine_get(path: &str, token: Option<&str>) -> Result<Vec<u8>, String> {
+    let address = SocketAddr::from(([127, 0, 0, 1], 8765));
+    let mut stream = TcpStream::connect_timeout(&address, Duration::from_millis(350))
+        .map_err(|error| error.to_string())?;
+    let _ = stream.set_read_timeout(Some(Duration::from_millis(800)));
+    let _ = stream.set_write_timeout(Some(Duration::from_millis(500)));
+    let authorization = token
+        .map(|value| format!("Authorization: Bearer {value}\r\n"))
+        .unwrap_or_default();
+    let request = format!(
+        "GET {path} HTTP/1.1\r\nHost: 127.0.0.1:8765\r\n{authorization}Connection: close\r\n\r\n"
+    );
+    stream
+        .write_all(request.as_bytes())
+        .map_err(|error| error.to_string())?;
+    let mut response = Vec::new();
+    stream
+        .read_to_end(&mut response)
+        .map_err(|error| error.to_string())?;
+    let body_offset = response
+        .windows(4)
+        .position(|window| window == b"\r\n\r\n")
+        .ok_or_else(|| "Local engine returned an invalid HTTP response".to_string())?;
+    let status_line = response
+        .split(|byte| *byte == b'\n')
+        .next()
+        .and_then(|line| std::str::from_utf8(line).ok())
+        .unwrap_or_default();
+    if !status_line.contains(" 200 ") {
+        return Err(format!(
+            "Local engine request failed: {}",
+            status_line.trim()
+        ));
+    }
+    Ok(response[body_offset + 4..].to_vec())
+}
+
+fn fetch_engine_session_token() -> Result<String, String> {
+    let body = engine_get("/api/session", None)?;
+    serde_json::from_slice::<serde_json::Value>(&body)
+        .map_err(|error| error.to_string())?
+        .get("token")
+        .and_then(serde_json::Value::as_str)
+        .filter(|token| !token.is_empty())
+        .map(str::to_owned)
+        .ok_or_else(|| "Local engine did not return a session token".to_string())
+}
+
+fn fetch_tray_metrics(token: &str) -> Result<TrayMetrics, String> {
+    tray_metrics_from_jobs(&engine_get("/api/jobs", Some(token))?)
+        .map_err(|error| error.to_string())
+}
+
+fn update_tray(app: &AppHandle, metrics: TrayMetrics) {
+    let tray = app.tray_handle();
+    #[cfg(target_os = "macos")]
+    let _ = tray.set_title(&tray_title(metrics));
+    let label = tray_status_label(metrics);
+    let _ = tray.get_item(TRAY_STATUS_ID).set_title(&label);
+    let tooltip = if metrics.active == 0 {
+        "yet another downloader".to_string()
+    } else {
+        format!("yet another downloader · {label}")
+    };
+    let _ = tray.set_tooltip(&tooltip);
+}
+
+fn begin_tray_monitor(app: AppHandle, lifecycle: AppLifecycle) -> Result<(), String> {
+    std::thread::Builder::new()
+        .name("tray-download-monitor".to_string())
+        .spawn(move || {
+            let mut token: Option<String> = None;
+            let mut displayed: Option<TrayMetrics> = None;
+            while !lifecycle.quitting.load(Ordering::SeqCst) {
+                let result = (|| {
+                    if token.is_none() {
+                        token = Some(fetch_engine_session_token()?);
+                    }
+                    fetch_tray_metrics(token.as_deref().unwrap_or_default())
+                })();
+                match result {
+                    Ok(metrics) => {
+                        if displayed != Some(metrics) {
+                            update_tray(&app, metrics);
+                            displayed = Some(metrics);
+                        }
+                    }
+                    Err(_) => {
+                        token = None;
+                        if probe_engine() != EngineProbe::Compatible
+                            && displayed != Some(TrayMetrics::default())
+                        {
+                            update_tray(&app, TrayMetrics::default());
+                            displayed = Some(TrayMetrics::default());
+                        }
+                    }
+                }
+                std::thread::sleep(Duration::from_secs(1));
+            }
+        })
+        .map(|_| ())
+        .map_err(|error| error.to_string())
 }
 
 fn wait_for_engine(process: EngineProcess) -> Result<EngineProcess, String> {
@@ -548,13 +731,36 @@ fn reveal_path(path: String) -> Result<(), String> {
         })
 }
 
+fn system_tray() -> SystemTray {
+    let menu = SystemTrayMenu::new()
+        .add_item(CustomMenuItem::new(TRAY_STATUS_ID, "当前没有下载任务").disabled())
+        .add_native_item(SystemTrayMenuItem::Separator)
+        .add_item(CustomMenuItem::new(TRAY_OPEN_ID, "打开主窗口"))
+        .add_item(CustomMenuItem::new(
+            TRAY_QUIT_ID,
+            "退出 yet another downloader",
+        ));
+    let tray = SystemTray::new()
+        .with_menu(menu)
+        .with_tooltip("yet another downloader");
+    #[cfg(target_os = "macos")]
+    let tray = tray.with_menu_on_left_click(false);
+    tray
+}
+
 fn main() {
     tauri_plugin_deep_link::prepare("io.github.shumybest.yet-another-downloader");
     let manager = EngineManager::default();
     let manager_for_setup = manager.clone();
     let manager_for_exit = manager.clone();
+    let lifecycle = AppLifecycle::default();
+    let lifecycle_for_setup = lifecycle.clone();
+    let lifecycle_for_close = lifecycle.clone();
+    let lifecycle_for_tray = lifecycle.clone();
+    let lifecycle_for_exit = lifecycle.clone();
     let app = tauri::Builder::default()
         .manage(manager)
+        .system_tray(system_tray())
         .setup(move |app| {
             let activation_handle = app.handle();
             listen_for_activation(activation_handle.clone())?;
@@ -563,12 +769,26 @@ fn main() {
             })
             .map_err(|error| error.to_string())?;
             begin_engine_startup(app.handle(), manager_for_setup.clone())?;
+            begin_tray_monitor(app.handle(), lifecycle_for_setup.clone())?;
             Ok(())
         })
-        .on_window_event(|event| {
+        .on_system_tray_event(move |app, event| match event {
+            SystemTrayEvent::LeftClick { .. } => focus_main_window(app),
+            SystemTrayEvent::MenuItemClick { id, .. } if id == TRAY_OPEN_ID => {
+                focus_main_window(app)
+            }
+            SystemTrayEvent::MenuItemClick { id, .. } if id == TRAY_QUIT_ID => {
+                lifecycle_for_tray.quitting.store(true, Ordering::SeqCst);
+                app.exit(0);
+            }
+            _ => {}
+        })
+        .on_window_event(move |event| {
             if let WindowEvent::CloseRequested { api, .. } = event.event() {
-                api.prevent_close();
-                let _ = event.window().hide();
+                if should_hide_window(lifecycle_for_close.quitting.load(Ordering::SeqCst)) {
+                    api.prevent_close();
+                    let _ = event.window().hide();
+                }
             }
         })
         .invoke_handler(tauri::generate_handler![
@@ -583,6 +803,7 @@ fn main() {
         .expect("failed to build yet another downloader");
     app.run(move |_handle, event| {
         if matches!(event, RunEvent::Exit) {
+            lifecycle_for_exit.quitting.store(true, Ordering::SeqCst);
             if let Some(child) = manager_for_exit.process.lock().unwrap().take() {
                 child.kill();
             }
@@ -594,7 +815,8 @@ fn main() {
 mod tests {
     use super::{
         bundled_binary_candidates, copy_directory_contents, engine_status_from_probe,
-        health_body_is_compatible, retry_startup, EngineProbe,
+        health_body_is_compatible, retry_startup, should_hide_window, tray_metrics_from_jobs,
+        tray_status_label, tray_title, EngineProbe, TrayMetrics,
     };
     use std::fs;
     use std::sync::atomic::{AtomicUsize, Ordering};
@@ -642,6 +864,49 @@ mod tests {
 
         assert_eq!(status.state, "starting");
         assert_eq!(status.message, "正在准备本地下载引擎");
+    }
+
+    #[test]
+    fn aggregates_only_active_jobs_for_the_tray() {
+        let metrics = tray_metrics_from_jobs(
+            br#"[
+              {"status":"downloading","speedBytesPerSecond":10485760},
+              {"status":"probing","speedBytesPerSecond":0},
+              {"status":"completed","speedBytesPerSecond":7340032},
+              {"status":"failed","speedBytesPerSecond":2097152}
+            ]"#,
+        )
+        .unwrap();
+
+        assert_eq!(
+            metrics,
+            TrayMetrics {
+                active: 2,
+                speed_bytes_per_second: 10 * 1024 * 1024,
+            }
+        );
+    }
+
+    #[test]
+    fn formats_live_and_idle_tray_labels() {
+        let active = TrayMetrics {
+            active: 2,
+            speed_bytes_per_second: 19_503_514,
+        };
+
+        assert_eq!(tray_title(active), "18.6 MiB/s");
+        assert_eq!(tray_status_label(active), "下载中 · 2 个任务 · 18.6 MiB/s");
+        assert_eq!(tray_title(TrayMetrics::default()), "");
+        assert_eq!(
+            tray_status_label(TrayMetrics::default()),
+            "当前没有下载任务"
+        );
+    }
+
+    #[test]
+    fn closing_hides_the_window_unless_the_app_is_quitting() {
+        assert!(should_hide_window(false));
+        assert!(!should_hide_window(true));
     }
 
     #[test]

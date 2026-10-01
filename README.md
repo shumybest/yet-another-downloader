@@ -22,6 +22,7 @@
 - Downloads through a configurable proxy with bounded retries, cancellation, stall detection, and concurrent HLS fragment fetching.
 - Normalizes output to a playable MP4 when stream copying is not compatible with common macOS players or Quick Look.
 - Keeps download history locally and never persists captured cookies, authorization headers, or full signed media URLs.
+- Keeps active downloads running after the main window closes and shows their combined live speed in the macOS menu bar.
 - Bundles a Chrome extension installation flow into the desktop app.
 
 ## Browser capture

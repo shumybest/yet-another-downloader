@@ -104,6 +104,10 @@ curl -fsS -X POST -H "Authorization: Bearer $token" -H 'Content-Type: applicatio
 
 桌面端任务管理验收：创建或捕获任务后确认重启引擎能够保留历史；取消失败任务后点击“重新下载”会产生新的 `attempt`/`retryOf` 记录；删除记录和清理完成记录不会删除输出文件；对已存在输出文件点击 Finder 定位能够打开其所在目录。
 
+菜单栏验收：关闭主窗口后确认进程和引擎仍在运行；左键点击菜单栏图标应恢复并置前窗口；创建活动任务后确认图标旁每秒更新合计下载速度，任务结束后速度文字消失；右键菜单中的状态行不可点击，“打开主窗口”恢复窗口，“退出 yet another downloader”才会终止应用及其管理的 sidecar，并释放 8765 端口。
+
+GitHub Actions 使用锁文件做干净安装。修改 Node 依赖后应至少执行一次 `pnpm install --frozen-lockfile && pnpm typecheck`；Rust/Tauri 任务使用 `macos-latest`，避免绑定已经下线或长期无可用容量的旧 macOS Runner。
+
 如果 Cargo 在 macOS 启动即报 `libz3.4.15.dylib` 缺失，先通过本地代理更新或重装 Homebrew 的 `rust llvm z3`，确认动态库版本匹配，再重跑上述命令。本机还需要 Rust 1.88+，因为当前解析出的 Tauri 依赖中有包声明了该最低版本。这个错误发生在 rustc 启动阶段，不能用前端或 Python 检查代替。
 
 ## 已知限制

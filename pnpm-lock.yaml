@@ -11,6 +11,9 @@ importers:
       '@types/chrome':
         specifier: ^0.0.270
         version: 0.0.270
+      '@types/node':
+        specifier: ^22.10.0
+        version: 22.20.4
       '@types/react':
         specifier: ^18.3.12
         version: 18.3.31
@@ -19,13 +22,13 @@ importers:
         version: 18.3.7(@types/react@18.3.31)
       '@vitejs/plugin-react':
         specifier: ^4.3.4
-        version: 4.7.0(vite@6.4.3)
+        version: 4.7.0(vite@6.4.3(@types/node@22.20.4))
       typescript:
         specifier: ^5.7.2
         version: 5.9.3
       vite:
         specifier: ^6.0.5
-        version: 6.4.3
+        version: 6.4.3(@types/node@22.20.4)
 
   apps/chrome-extension:
     dependencies:
@@ -47,10 +50,10 @@ importers:
     devDependencies:
       '@vitejs/plugin-react':
         specifier: ^4.3.4
-        version: 4.7.0(vite@6.4.3)
+        version: 4.7.0(vite@6.4.3(@types/node@22.20.4))
       vite:
         specifier: ^6.0.5
-        version: 6.4.3
+        version: 6.4.3(@types/node@22.20.4)
 
   apps/desktop:
     dependencies:
@@ -69,10 +72,10 @@ importers:
     devDependencies:
       '@vitejs/plugin-react':
         specifier: ^4.3.4
-        version: 4.7.0(vite@6.4.3)
+        version: 4.7.0(vite@6.4.3(@types/node@22.20.4))
       vite:
         specifier: ^6.0.5
-        version: 6.4.3
+        version: 6.4.3(@types/node@22.20.4)
 
   packages/capture-core: {}
 
@@ -508,6 +511,9 @@ packages:
   '@types/har-format@1.2.16':
     resolution: {integrity: sha512-fluxdy7ryD3MV6h8pTfTYpy/xQzCFC7m89nOH9y94cNqJ1mDIDPut7MnRHI3F6qRmh/cT2fUjG1MLdCNb4hE9A==}
 
+  '@types/node@22.20.4':
+    resolution: {integrity: sha512-zJRE40jpHtKqE/C4fgHrAKQLJuSpzEnP9ff9Y7YtoR3Wd2pwqzlekDeEuUQXjRd+QCYnVnNwuJYmhdk9XV8gvA==}
+
   '@types/prop-types@15.7.15':
     resolution: {integrity: sha512-F6bEyamV9jKGAFBEmlQnesRPGOQqS2+Uwi0Em15xenOxHaf2hv6L8YCVn3rPdPJOiJfPiCnLIRyvwVaqMY3MIw==}
 
@@ -663,6 +669,9 @@ packages:
     resolution: {integrity: sha512-jl1vZzPDinLr9eUt3J/t7V6FgNEw9QjvBPdysz9KfQDD41fQrC2Y4vKQdiaUpFT4bXlb1RHhLpp8wtm6M5TgSw==}
     engines: {node: '>=14.17'}
     hasBin: true
+
+  undici-types@6.21.0:
+    resolution: {integrity: sha512-iwDZqg0QAGrg9Rav5H4n0M64c3mkR59cJ6wQp+7C4nI0gsmExaedaYLNO44eT4AtBBwjbTiGPMlt2Md0T9H9JQ==}
 
   update-browserslist-db@1.3.3:
     resolution: {integrity: sha512-pJ2sYawQS0R/WI928Gj5GlPhTGzbMelq0+4INtSYNDV9ErKJcX6xjGWkoG/VnB3dpUm00zALaqkrUD77pO5TDQ==}
@@ -1040,6 +1049,10 @@ snapshots:
 
   '@types/har-format@1.2.16': {}
 
+  '@types/node@22.20.4':
+    dependencies:
+      undici-types: 6.21.0
+
   '@types/prop-types@15.7.15': {}
 
   '@types/react-dom@18.3.7(@types/react@18.3.31)':
@@ -1051,7 +1064,7 @@ snapshots:
       '@types/prop-types': 15.7.15
       csstype: 3.2.3
 
-  '@vitejs/plugin-react@4.7.0(vite@6.4.3)':
+  '@vitejs/plugin-react@4.7.0(vite@6.4.3(@types/node@22.20.4))':
     dependencies:
       '@babel/core': 7.29.7
       '@babel/plugin-transform-react-jsx-self': 7.29.7(@babel/core@7.29.7)
@@ -1059,7 +1072,7 @@ snapshots:
       '@rolldown/pluginutils': 1.0.0-beta.27
       '@types/babel__core': 7.20.5
       react-refresh: 0.17.0
-      vite: 6.4.3
+      vite: 6.4.3(@types/node@22.20.4)
     transitivePeerDependencies:
       - supports-color
 
@@ -1214,13 +1227,15 @@ snapshots:
 
   typescript@5.9.3: {}
 
+  undici-types@6.21.0: {}
+
   update-browserslist-db@1.3.3(browserslist@4.29.1):
     dependencies:
       browserslist: 4.29.1
       escalade: 3.2.0
       picocolors: 1.1.1
 
-  vite@6.4.3:
+  vite@6.4.3(@types/node@22.20.4):
     dependencies:
       esbuild: 0.25.12
       fdir: 6.5.0(picomatch@4.0.7)
@@ -1229,6 +1244,7 @@ snapshots:
       rollup: 4.63.5
       tinyglobby: 0.2.17
     optionalDependencies:
+      '@types/node': 22.20.4
       fsevents: 2.3.3
 
   yallist@3.1.1: {}
