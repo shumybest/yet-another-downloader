@@ -56,6 +56,7 @@ PYTHON="$($CONDA_BIN run -n "$CONDA_ENV" python -c 'import sys; print(sys.execut
   -e "$ROOT/vendor/yt-dlp[default]"
 
 pnpm verify
+cargo fetch --locked --manifest-path "$ROOT/src-tauri/Cargo.toml"
 python3 "$ROOT/scripts/release_compliance.py" \
   --project-root "$ROOT" \
   --output "$COMPLIANCE" \

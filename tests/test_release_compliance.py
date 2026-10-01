@@ -76,6 +76,7 @@ class ReleaseComplianceTests(unittest.TestCase):
 
         for required in (
             'm3u8-bridge-release',
+            'cargo fetch --locked',
             '--fetch-sources',
             'cargo tauri build --bundles app',
             'codesign --verify --deep --strict',
