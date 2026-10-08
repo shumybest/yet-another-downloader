@@ -1,6 +1,6 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { createRoot } from 'react-dom/client';
-import { EngineClient, type EngineSettings, type Job } from '@m3u8-bridge/protocol';
+import { EngineClient, type EngineSettings, type Job, type MediaKind } from '@m3u8-bridge/protocol';
 import {
   aggregateTaskMetrics,
   AppShell,
@@ -10,6 +10,7 @@ import {
   JobList,
   type TaskFilter,
 } from '@m3u8-bridge/ui';
+import { buildManualJobRequest } from './manual-job';
 import './main.css';
 
 type EngineState = 'starting' | 'online' | 'offline' | 'incompatible';
@@ -27,6 +28,7 @@ function DesktopApp() {
   const [actionError, setActionError] = useState('');
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [helpOpen, setHelpOpen] = useState(false);
+  const [manualJobOpen, setManualJobOpen] = useState(false);
   const [restarting, setRestarting] = useState(false);
   const [extensionBusy, setExtensionBusy] = useState(false);
   const [extensionPath, setExtensionPath] = useState('');
@@ -170,7 +172,10 @@ function DesktopApp() {
     <section className="task-workspace">
       <div className="task-toolbar">
         <nav className="filter-tabs" aria-label="任务筛选">{(['all', 'active', 'completed', 'failed', 'cancelled'] as TaskFilter[]).map(value => <button key={value} className={filter === value ? 'selected' : ''} onClick={() => setFilter(value)}>{filterLabel(value)} <b>{counts[value]}</b></button>)}</nav>
-        <button className="button button-ghost" disabled={!counts.completed} onClick={() => void runAction(() => client.clearCompleted())}>清理已完成</button>
+        <div className="task-toolbar-actions">
+          <button className="button button-ghost" disabled={!counts.completed} onClick={() => void runAction(() => client.clearCompleted())}>清理已完成</button>
+          <button className="button button-primary" onClick={() => setManualJobOpen(true)}>＋ 新建下载</button>
+        </div>
       </div>
       {visibleError && <ErrorDisclosure detail={visibleError} className="global-error" />}
       <div className="desktop-task-scroll">
@@ -180,7 +185,61 @@ function DesktopApp() {
     </>}
     {settingsOpen && <SettingsDrawer settings={settings} onChange={setSettings} onSave={save} onClose={() => setSettingsOpen(false)} />}
     {helpOpen && <HelpDrawer extensionPath={extensionPath} busy={extensionBusy} onPrepare={prepareExtension} onOpenChrome={openChromeExtensions} onClose={() => setHelpOpen(false)} />}
+    {manualJobOpen && <ManualJobDrawer client={client} onCreated={job => { setJobs(previous => [job, ...previous.filter(item => item.id !== job.id)]); setFilter('all'); setManualJobOpen(false); }} onClose={() => setManualJobOpen(false)} />}
   </AppShell>;
+}
+
+function ManualJobDrawer({ client, onCreated, onClose }: {
+  client: EngineClient;
+  onCreated: (job: Job) => void;
+  onClose: () => void;
+}) {
+  const [url, setUrl] = useState('');
+  const [title, setTitle] = useState('');
+  const [kind, setKind] = useState<'auto' | MediaKind>('auto');
+  const [submitting, setSubmitting] = useState(false);
+  const submittingRef = useRef(false);
+  const [inputError, setInputError] = useState('');
+  const [error, setError] = useState('');
+
+  const submit = async (event: React.FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    if (submittingRef.current) return;
+    let request;
+    try {
+      request = buildManualJobRequest(url, title, kind === 'auto' ? undefined : kind);
+    } catch (cause) {
+      setInputError(errorMessage(cause));
+      return;
+    }
+    submittingRef.current = true;
+    setInputError('');
+    setError('');
+    setSubmitting(true);
+    try {
+      onCreated(await client.createJob(request));
+    } catch (cause) {
+      setError(errorMessage(cause));
+    } finally {
+      submittingRef.current = false;
+      setSubmitting(false);
+    }
+  };
+
+  return <div className="drawer-layer" role="presentation" onMouseDown={event => event.target === event.currentTarget && !submitting && onClose()}>
+    <aside className="settings-drawer manual-job-drawer" role="dialog" aria-modal="true" aria-label="新建下载任务">
+      <header><div><p className="eyebrow">NEW DOWNLOAD</p><h2>新建下载</h2></div><button className="drawer-close" disabled={submitting} onClick={onClose} aria-label="关闭新建下载">×</button></header>
+      <form className="settings-form manual-job-form" onSubmit={event => void submit(event)} noValidate>
+        <label>媒体地址 <span className="required-mark">*</span><input autoFocus type="text" inputMode="url" autoCapitalize="off" autoComplete="off" spellCheck={false} value={url} placeholder="https://media.example.test/video.mp4" onChange={event => { setUrl(event.target.value); setInputError(''); setError(''); }} aria-required="true" aria-invalid={!!inputError} /><small>粘贴 HLS（m3u8）、DASH（mpd）或视频直链，不支持普通网页地址。</small></label>
+        <label>资源类型<select value={kind} onChange={event => setKind(event.target.value as 'auto' | MediaKind)}><option value="auto">自动识别</option><option value="hls">HLS 播放列表</option><option value="dash">DASH 播放列表</option><option value="direct">视频直链</option></select><small>链接没有媒体扩展名时，手动选择正确类型。</small></label>
+        <label>任务名称（可选）<input value={title} placeholder="留空使用默认名称" onChange={event => setTitle(event.target.value)} /></label>
+        <p className="manual-job-note">输出目录、代理和并发沿用“设置”中的全局配置。需要网页 Cookie 或特殊请求头时，请使用 Chrome 扩展捕获。</p>
+        {inputError && <p className="manual-job-input-error" role="alert">{inputError}</p>}
+        {error && <ErrorDisclosure detail={error} className="manual-job-error" />}
+        <div className="manual-job-actions"><button type="button" className="button button-ghost" disabled={submitting} onClick={onClose}>取消</button><button type="submit" className="button button-primary" disabled={submitting}>{submitting ? '创建中…' : '开始下载'}</button></div>
+      </form>
+    </aside>
+  </div>;
 }
 
 function StartupSurface({ message }: { message: string }) {
@@ -237,7 +296,7 @@ function HelpDrawer({ extensionPath, busy, onPrepare, onOpenChrome, onClose }: {
         <button className="button button-ghost" disabled={!extensionPath || busy} onClick={() => void onPrepare(true)}>在 Finder 中显示</button>
       </div>
       <div className="extension-path"><span>加载目录</span><code>{extensionPath || '~/Library/Application Support/m3u8-bridge/chrome-extension'}</code></div>
-      <footer><span>版本 0.1.1</span><span>本地处理，不上传捕获凭据</span></footer>
+      <footer><span>版本 0.1.2</span><span>本地处理，不上传捕获凭据</span></footer>
     </aside>
   </div>;
 }

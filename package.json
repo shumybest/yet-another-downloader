@@ -1,7 +1,7 @@
 {
   "name": "m3u8-bridge",
   "private": true,
-  "version": "0.1.1",
+  "version": "0.1.2",
   "license": "GPL-3.0-or-later",
   "repository": "https://github.com/shumybest/yet-another-downloader.git",
   "engines": { "node": ">=22.6.0" },
@@ -18,7 +18,7 @@
     "tauri:build": "cargo tauri build",
     "check:public": "python3 scripts/check_public_tree.py",
     "typecheck": "tsc --noEmit",
-    "test": "pnpm --filter @m3u8-bridge/capture-core test && pnpm --filter @m3u8-bridge/protocol test && pnpm --filter @m3u8-bridge/chrome-extension test && pnpm --filter @m3u8-bridge/ui test",
+    "test": "pnpm --filter @m3u8-bridge/capture-core test && pnpm --filter @m3u8-bridge/protocol test && pnpm --filter @m3u8-bridge/chrome-extension test && pnpm --filter @m3u8-bridge/ui test && pnpm --filter @m3u8-bridge/desktop test",
     "test:python": "PYTHONPATH=engine python3 -m unittest discover -s tests -v && PYTHONPATH=engine python3 -m py_compile engine/m3u8_bridge/*.py scripts/check_public_tree.py",
     "test:rust": "bash scripts/check-rust.sh",
     "verify": "pnpm check:public && pnpm typecheck && pnpm test && pnpm test:python && pnpm build && pnpm test:rust",

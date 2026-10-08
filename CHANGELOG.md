@@ -4,6 +4,16 @@ All notable changes to this project are documented here. The format follows [Kee
 
 ## [Unreleased]
 
+## [0.1.2] - 2026-10-08
+
+### Added
+
+- Desktop form for manually creating HLS, DASH, and direct-video download tasks from media URLs, including extensionless links with an explicit media type.
+
+### Changed
+
+- Synchronized desktop, engine, Chrome extension, and package versions to 0.1.2.
+
 ## [0.1.1] - 2026-10-01
 
 ### Added
@@ -31,6 +41,7 @@ All notable changes to this project are documented here. The format follows [Kee
 - yt-dlp and FFmpeg download, normalization, validation, proxy, cancellation, retry, and stall protection.
 - Packaged extension installation and browser-to-desktop activation.
 
-[Unreleased]: https://github.com/shumybest/yet-another-downloader/compare/v0.1.1...HEAD
+[Unreleased]: https://github.com/shumybest/yet-another-downloader/compare/v0.1.2...HEAD
+[0.1.2]: https://github.com/shumybest/yet-another-downloader/compare/v0.1.1...v0.1.2
 [0.1.1]: https://github.com/shumybest/yet-another-downloader/compare/v0.1.0...v0.1.1
 [0.1.0]: https://github.com/shumybest/yet-another-downloader/releases/tag/v0.1.0

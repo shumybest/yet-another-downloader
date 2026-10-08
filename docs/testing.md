@@ -69,10 +69,10 @@ cargo tauri build --bundles app
 公开发行前还必须运行：
 
 ```sh
-pnpm release:package -- v0.1.1
+pnpm release:package -- v0.1.2
 ```
 
-确认 `release/v0.1.1/SHA256SUMS.txt` 校验通过，并使用 `scripts/verify-release.sh` 检查签名、架构、Homebrew 路径闭包、内置扩展和法律材料。对应源码归档必须包含主项目、yt-dlp 子模块、Homebrew 配方与收据、依赖许可证、下载的源码输入及 PyInstaller 构建工具源码；`PYTHON-DEPENDENCIES.json` 不应出现用户目录中的无关 Python 包。
+确认 `release/v0.1.2/SHA256SUMS.txt` 校验通过，并使用 `scripts/verify-release.sh` 检查签名、架构、Homebrew 路径闭包、内置扩展和法律材料。对应源码归档必须包含主项目、yt-dlp 子模块、Homebrew 配方与收据、依赖许可证、下载的源码输入及 PyInstaller 构建工具源码；`PYTHON-DEPENDENCIES.json` 不应出现用户目录中的无关 Python 包。
 
 发布构建前需运行 `scripts/build-sidecar.sh`。构建后验证包内至少包含：
 
@@ -103,6 +103,8 @@ curl -fsS -X POST -H "Authorization: Bearer $token" -H 'Content-Type: applicatio
 响应应为 `{"activated": true}`，最小化或隐藏的窗口应恢复并置前。发布包冷启动按部署手册检查 `CFBundleURLTypes` 后执行 `open 'm3u8bridge://download'`；确认应用从完全退出状态立即显示 Loading，随后引擎通过 `/healthz`，且返回的 `ffmpeg` 路径位于当前 `.app/Contents/Resources/binaries`。强制终止桌面进程后等待 sidecar 完成父进程检测和清理，确认 8765 不再被占用。
 
 桌面端任务管理验收：创建或捕获任务后确认重启引擎能够保留历史；取消失败任务后点击“重新下载”会产生新的 `attempt`/`retryOf` 记录；删除记录和清理完成记录不会删除输出文件；对已存在输出文件点击 Finder 定位能够打开其所在目录。
+
+手动创建任务验收：在桌面端点击“新建下载”，先提交空地址和非 HTTP(S) 地址，确认显示输入提示且不会创建任务；再提交带签名参数的媒体 URL 与自定义任务名称，确认原始 URL 未被重写、任务出现在列表中。无扩展名的媒体链接可显式指定 HLS、DASH 或视频直链；引擎不可用时表单应保留输入并显示技术详情。
 
 菜单栏验收：关闭主窗口后确认进程和引擎仍在运行；左键点击菜单栏图标应恢复并置前窗口；创建活动任务后确认图标旁每秒更新合计下载速度，任务结束后速度文字消失；右键菜单中的状态行不可点击，“打开主窗口”恢复窗口，“退出 yet another downloader”才会终止应用及其管理的 sidecar，并释放 8765 端口。
 
