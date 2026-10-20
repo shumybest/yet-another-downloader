@@ -69,10 +69,10 @@ cargo tauri build --bundles app
 公开发行前还必须运行：
 
 ```sh
-pnpm release:package -- v0.1.2
+pnpm release:package -- v0.1.3
 ```
 
-确认 `release/v0.1.2/SHA256SUMS.txt` 校验通过，并使用 `scripts/verify-release.sh` 检查签名、架构、Homebrew 路径闭包、内置扩展和法律材料。对应源码归档必须包含主项目、yt-dlp 子模块、Homebrew 配方与收据、依赖许可证、下载的源码输入及 PyInstaller 构建工具源码；`PYTHON-DEPENDENCIES.json` 不应出现用户目录中的无关 Python 包。
+确认 `release/v0.1.3/SHA256SUMS.txt` 校验通过，并使用 `scripts/verify-release.sh` 检查签名、架构、Homebrew 路径闭包、内置扩展和法律材料。对应源码归档必须包含主项目、yt-dlp 子模块、Homebrew 配方与收据、依赖许可证、下载的源码输入及 PyInstaller 构建工具源码；`PYTHON-DEPENDENCIES.json` 不应出现用户目录中的无关 Python 包。
 
 发布构建前需运行 `scripts/build-sidecar.sh`。构建后验证包内至少包含：
 
@@ -120,3 +120,9 @@ GitHub Actions 使用锁文件做干净安装。修改 Node 依赖后应至少�
 - PNG 图片 HLS 自动测试已覆盖：150 分片并发成功、HTML/错误页失败、所有 future 等待时的取消和独立停滞超时、失败状态分类、ffmpeg 合并取消、字节/速度统计以及失败校验不发布最终文件。真实一次性签名地址仍需目标站点手工验收。
 - PNG 包装 MPEG-TS 的回归测试需确认解析到 PNG `IEND` 后再寻找连续 188 字节 TS 包，最终 MP4 同时保留视频与音频。真实 TurboSPlayer 样本应抽查开头、中段和结尾分片，并通过代理完成连续分片封装验证。
 - 当前已生成并验证 Intel `x86_64` `.app`，使用 ad-hoc 签名；Apple Developer ID 公证和 `arm64` 构建仍未完成。
+
+## 引擎启动回归
+
+Rust 的 `engine_probe` 测试使用临时 loopback 端口模拟空闲端口、慢响应、HTTP 404 外部服务，以及返回 Content-Length 后保持连接的健康服务。慢响应应为等待状态，外部服务应为真实冲突，完整健康响应应立即通过。重启测试还确认等待旧监听端口释放，不会把尚未退出的旧进程误当作可复用引擎。
+
+桌面端 `engine-startup.test.ts` 检查实际阶段映射与耗时显示。手动验收时确认：启动阶段逐项更新、失败保留详情、处理冲突后可重新检查、引擎提前退出可见、发布版日志可打开、启动中退出应用不遗留引擎。

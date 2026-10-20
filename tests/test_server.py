@@ -14,10 +14,23 @@ from http.server import BaseHTTPRequestHandler
 from socketserver import TCPServer
 from unittest.mock import patch
 
-from m3u8_bridge.server import Engine, activate_desktop, default_settings, engine_health, monitor_desktop_parent, read_settings
+from m3u8_bridge.server import Engine, activate_desktop, default_settings, engine_health, monitor_desktop_parent, read_settings, report_startup
 
 
 class MediaRoutingTests(unittest.TestCase):
+    def test_startup_reports_component_stage_to_atomic_status_file(self):
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / 'startup.json'
+            with patch.dict(os.environ, {'M3U8_BRIDGE_STARTUP_STATUS': str(path)}), patch('builtins.print'):
+                report_startup('ytdlp', 'Loading yt-dlp')
+            self.assertEqual(json.loads(path.read_text()), {'stage': 'ytdlp', 'detail': 'Loading yt-dlp'})
+            self.assertFalse(path.with_suffix('.tmp').exists())
+
+    def test_startup_reporting_survives_missing_status_directory(self):
+        with tempfile.TemporaryDirectory() as directory:
+            with patch.dict(os.environ, {'M3U8_BRIDGE_STARTUP_STATUS': str(Path(directory) / 'missing' / 'startup.json')}), patch('builtins.print'):
+                report_startup('initializing', 'Loading settings')
+
     def test_default_settings_do_not_assume_a_local_proxy(self):
         self.assertEqual(default_settings()['proxy'], '')
 

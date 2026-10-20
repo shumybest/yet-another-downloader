@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useRef, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { createRoot } from 'react-dom/client';
 import { EngineClient, type EngineSettings, type Job, type MediaKind } from '@m3u8-bridge/protocol';
 import {
@@ -11,16 +11,15 @@ import {
   type TaskFilter,
 } from '@m3u8-bridge/ui';
 import { buildManualJobRequest } from './manual-job';
+import { STARTUP_STEPS, startupElapsed, startupStepState, type EngineStatus, type EngineState } from './engine-startup';
 import './main.css';
 
-type EngineState = 'starting' | 'online' | 'offline' | 'incompatible';
-interface EngineStatus { state: EngineState; message: string; managed: boolean }
 type TauriWindow = Window & { __TAURI__?: { invoke: <T>(command: string, args?: Record<string, unknown>) => Promise<T> } };
 
 const DEFAULT_ENGINE: EngineStatus = { state: 'starting', message: '正在连接本地下载引擎', managed: false };
 
 function DesktopApp() {
-  const client = useMemo(() => new EngineClient(), []);
+  const [client, setClient] = useState(() => new EngineClient());
   const [jobs, setJobs] = useState<Job[]>([]);
   const [settings, setSettings] = useState<EngineSettings | null>(null);
   const [engine, setEngine] = useState<EngineStatus>(DEFAULT_ENGINE);
@@ -55,13 +54,26 @@ function DesktopApp() {
 
   useEffect(() => {
     let active = true;
+    let refreshing = false;
     const refresh = async () => {
-      await refreshEngine().catch(error => active && setEngine({ state: 'offline', message: errorMessage(error), managed: false }));
+      if (refreshing || !active) return;
+      refreshing = true;
       try {
+        let status: EngineStatus;
+        if (tauri) status = await tauri.invoke<EngineStatus>('engine_status');
+        else {
+          await client.health();
+          status = { state: 'online', message: '本地下载引擎运行正常', managed: false };
+        }
+        if (!active) return;
+        setEngine(status);
+        if (status.state !== 'online') return;
         const [nextJobs, nextSettings] = await Promise.all([client.listJobs(), client.getSettings()]);
         if (active) { setJobs(nextJobs); setSettings(nextSettings); }
-      } catch {
-        // Engine status already contains the actionable connectivity diagnosis.
+      } catch (error) {
+        if (active) setEngine(previous => previous.state === 'starting' ? previous : { ...previous, state: 'offline', message: errorMessage(error) });
+      } finally {
+        refreshing = false;
       }
     };
     void refresh();
@@ -98,10 +110,10 @@ function DesktopApp() {
     if (!tauri) { setActionError('浏览器预览模式不能重启引擎，请启动 Tauri 桌面端'); return; }
     setRestarting(true);
     setActionError('');
+    setClient(new EngineClient());
     setEngine({ state: 'starting', message: '正在重启本地下载引擎', managed: true });
     try {
       setEngine(await tauri.invoke<EngineStatus>('restart_engine'));
-      await refreshData();
     } catch (error) {
       setActionError(errorMessage(error));
       await refreshEngine().catch(() => undefined);
@@ -156,7 +168,7 @@ function DesktopApp() {
     </div>
     <div className="engine-control">
       <div className={`engine-state engine-${engine.state}`}><i /><span><b>{engineLabel(engine.state)}</b><small>{engine.managed ? '桌面端管理' : engine.state === 'online' ? '外部进程' : '需要处理'}</small></span></div>
-      {engine.state !== 'online' && <button className="button button-primary" disabled={restarting || engine.state === 'incompatible'} onClick={() => void restartEngine()}>{restarting ? '重启中' : '重启引擎'}</button>}
+      {engine.state !== 'online' && <button className="button button-primary" disabled={restarting || engine.state === 'starting'} onClick={() => void restartEngine()}>{engine.state === 'starting' ? '启动中' : engine.state === 'incompatible' ? '重新检查' : '重启引擎'}</button>}
       <button className="button button-ghost" onClick={() => void openEngineLog()}>日志</button>
       <button className="button button-ghost help-button" onClick={() => setHelpOpen(true)} aria-label="打开帮助">帮助</button>
       <button className="button button-ghost settings-button" onClick={() => setSettingsOpen(true)} aria-label="打开设置">设置</button>
@@ -164,7 +176,7 @@ function DesktopApp() {
   </header>;
 
   return <AppShell className="desktop-shell" header={header}>
-    {engine.state === 'starting' ? <StartupSurface message={engine.message} /> : <>
+    {engine.state !== 'online' ? <StartupSurface engine={engine} error={actionError} onRetry={restartEngine} onLog={openEngineLog} /> : <>
     <section className="workspace-intro">
       <div><p className="eyebrow">LOCAL MEDIA PIPELINE</p><h1>下载任务</h1></div>
       <p>{engine.message}</p>
@@ -242,13 +254,25 @@ function ManualJobDrawer({ client, onCreated, onClose }: {
   </div>;
 }
 
-function StartupSurface({ message }: { message: string }) {
-  return <section className="startup-surface" aria-live="polite" aria-busy="true">
-    <div className="startup-orbit"><img src="/app-icon.png" alt="" /><i /><i /><i /></div>
-    <p className="eyebrow">LOCAL ENGINE RECOVERY</p>
-    <h1>正在准备下载引擎</h1>
-    <p>{message}。首次启动需要解压本地组件，应用会自动重试，无需重复操作。</p>
-    <div className="startup-progress"><span /></div>
+function StartupSurface({ engine, error, onRetry, onLog }: {
+  engine: EngineStatus; error: string; onRetry: () => Promise<void>; onLog: () => Promise<void>;
+}) {
+  const starting = engine.state === 'starting';
+  const progress = engine.progress;
+  return <section className={`startup-surface ${starting ? '' : 'startup-failed'}`} aria-live="polite" aria-busy={starting}>
+    <div className="startup-content">
+    <div className="startup-heading"><img src="/app-icon.png" alt="" /><div><p className="eyebrow">LOCAL DOWNLOAD ENGINE</p><h1>{starting ? '正在启动下载引擎' : engine.state === 'incompatible' ? '本地服务端口被占用' : '下载引擎启动未完成'}</h1></div></div>
+    <p className="startup-description">{starting ? progress?.detail || engine.message : '查看下方诊断，处理后可以重新检查并启动引擎。'}</p>
+    <div className="startup-meta"><span>127.0.0.1:8765</span><span>已用 {startupElapsed(progress?.elapsedMs)}</span><span>尝试 {progress?.attempt || 1} / 3</span></div>
+    <ol className="startup-steps" aria-label="引擎启动阶段">{STARTUP_STEPS.map((step, index) => {
+      const state = startupStepState(progress?.stage || 'checking', index);
+      return <li key={step.stage} className={`step-${state}`} aria-current={state === 'current' ? 'step' : undefined}><i>{state === 'complete' ? '✓' : index + 1}</i><span>{step.label}</span><small>{state === 'complete' ? '完成' : state === 'current' ? starting ? '进行中' : '中止' : '等待'}</small></li>;
+    })}</ol>
+    {starting && <div className="startup-progress"><span /></div>}
+    {progress?.ytDlp && <p className="startup-version">yt-dlp {progress.ytDlp}</p>}
+    {(!starting || error) && <ErrorDisclosure detail={error || engine.message} className="startup-error" />}
+    <div className="startup-actions"><button className="button button-ghost" onClick={() => void onLog()}>查看引擎日志</button>{!starting && <button className="button button-primary" onClick={() => void onRetry()}>重新检查并启动</button>}</div>
+    </div>
   </section>;
 }
 
@@ -296,7 +320,7 @@ function HelpDrawer({ extensionPath, busy, onPrepare, onOpenChrome, onClose }: {
         <button className="button button-ghost" disabled={!extensionPath || busy} onClick={() => void onPrepare(true)}>在 Finder 中显示</button>
       </div>
       <div className="extension-path"><span>加载目录</span><code>{extensionPath || '~/Library/Application Support/m3u8-bridge/chrome-extension'}</code></div>
-      <footer><span>版本 0.1.2</span><span>本地处理，不上传捕获凭据</span></footer>
+      <footer><span>版本 0.1.3</span><span>本地处理，不上传捕获凭据</span></footer>
     </aside>
   </div>;
 }

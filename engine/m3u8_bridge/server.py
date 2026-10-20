@@ -1240,10 +1240,31 @@ class ThreadingHTTPServer(socketserver.ThreadingMixIn, socketserver.TCPServer):
     daemon_threads = True
 
 
+def report_startup(stage: str, detail: str) -> None:
+    """Report component startup only; never include request data or credentials."""
+    payload = json.dumps({'stage': stage, 'detail': detail}, ensure_ascii=False)
+    print(f'ENGINE_STARTUP {payload}', flush=True)
+    status_path = os.environ.get('M3U8_BRIDGE_STARTUP_STATUS')
+    if status_path:
+        path = Path(status_path)
+        temporary = path.with_suffix('.tmp')
+        try:
+            temporary.write_text(payload, encoding='utf-8')
+            temporary.replace(path)
+        except OSError:
+            pass
+
+
 def main() -> None:
     port = int(os.environ.get('M3U8_BRIDGE_PORT', '8765'))
     global ENGINE
+    report_startup('initializing', '读取设置与恢复下载记录')
     ENGINE = Engine(recover=True)
+    report_startup('ytdlp', '载入 yt-dlp 下载引擎')
+    version = _yt_dlp_version()
+    if not version:
+        raise RuntimeError('yt-dlp is unavailable; install the pinned engine dependencies')
+    report_startup('healthcheck', f'yt-dlp {version} 已载入，启动本地 API')
     current_engine().gateway.base_url = f'http://127.0.0.1:{port}'
     server = ThreadingHTTPServer(('127.0.0.1', port), Handler)
     if os.environ.get('M3U8_BRIDGE_DESKTOP_PID'):

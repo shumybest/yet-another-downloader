@@ -5,7 +5,7 @@ export interface FriendlyError {
 }
 
 const RULES: Array<{ pattern: RegExp; title: string; guidance: string }> = [
-  { pattern: /(?:local engine|本地下载引擎|引擎未运行|port 8765|端口 8765|did not become ready)/i, title: '本地引擎不可用', guidance: '请尝试重启引擎；端口冲突时先关闭旧版引擎进程。' },
+  { pattern: /(?:local engine|本地下载引擎|引擎进程|引擎未运行|port 8765|端口 8765|did not become ready)/i, title: '本地引擎不可用', guidance: '查看启动阶段与技术详情后重试；端口冲突时按提示确认监听进程。' },
   { pattern: /(?:ssl_|ssl\s|tls|certificate)/i, title: '安全连接失败', guidance: '请检查代理连接，或稍后重试该任务。' },
   { pattern: /(?:\b429\b|too many requests|rate.?limit)/i, title: '请求过于频繁', guidance: '服务端正在限流，请稍后重试或降低分片并发。' },
   { pattern: /(?:timed?\s*out|timeout|长时间无进度)/i, title: '连接超时', guidance: '视频源或代理响应过慢，请检查网络后重试。' },

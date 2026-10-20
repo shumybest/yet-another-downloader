@@ -1,11 +1,15 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
+mod engine_probe;
+#[cfg(test)]
+use engine_probe::health_body_is_compatible;
+use engine_probe::EngineProbe;
+
 use serde::Serialize;
 use signal_hook::{consts::SIGUSR1, iterator::Signals};
 #[cfg(not(debug_assertions))]
 use std::collections::HashMap;
 use std::fs;
-#[cfg(debug_assertions)]
 use std::fs::OpenOptions;
 use std::path::{Path, PathBuf};
 use std::process::Command;
@@ -21,7 +25,7 @@ use std::{
     time::{Duration, Instant},
 };
 #[cfg(not(debug_assertions))]
-use tauri::api::process::{Command as SidecarCommand, CommandChild};
+use tauri::api::process::{Command as SidecarCommand, CommandChild, CommandEvent};
 use tauri::{
     AppHandle, CustomMenuItem, Manager, RunEvent, State, SystemTray, SystemTrayEvent,
     SystemTrayMenu, SystemTrayMenuItem, WindowEvent,
@@ -36,10 +40,25 @@ enum EngineProcess {
     #[cfg(debug_assertions)]
     Native(Child),
     #[cfg(not(debug_assertions))]
-    Sidecar(CommandChild),
+    Sidecar(CommandChild, Arc<Mutex<Option<String>>>),
 }
 
 impl EngineProcess {
+    fn exit_error(&mut self) -> Option<String> {
+        #[cfg(not(debug_assertions))]
+        if let Self::Sidecar(_, exit) = self {
+            return exit.lock().unwrap().clone();
+        }
+        #[cfg(debug_assertions)]
+        if let Self::Native(child) = self {
+            return match child.try_wait() {
+                Ok(Some(status)) => Some(format!("引擎进程提前退出: {status}")),
+                Err(error) => Some(format!("无法检查引擎进程: {error}")),
+                Ok(None) => None,
+            };
+        }
+        None
+    }
     fn is_owned(&self) -> bool {
         !matches!(self, Self::External)
     }
@@ -53,7 +72,7 @@ impl EngineProcess {
                 let _ = child.wait();
             }
             #[cfg(not(debug_assertions))]
-            Self::Sidecar(child) => {
+            Self::Sidecar(child, _) => {
                 let _ = child.kill();
             }
         }
@@ -66,6 +85,41 @@ struct EngineManager {
     last_error: Arc<Mutex<Option<String>>>,
     restart_lock: Arc<Mutex<()>>,
     starting: Arc<AtomicBool>,
+    progress: Arc<Mutex<StartupProgress>>,
+    stopping: Arc<AtomicBool>,
+}
+
+#[derive(Clone, Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct StartupProgress {
+    stage: String,
+    detail: String,
+    attempt: usize,
+    #[serde(skip)]
+    started: Instant,
+    elapsed_ms: u64,
+    yt_dlp: Option<String>,
+}
+
+impl Default for StartupProgress {
+    fn default() -> Self {
+        Self {
+            stage: "checking".into(),
+            detail: "检查本地服务".into(),
+            attempt: 1,
+            started: Instant::now(),
+            elapsed_ms: 0,
+            yt_dlp: None,
+        }
+    }
+}
+
+impl EngineManager {
+    fn stage(&self, stage: &str, detail: impl Into<String>) {
+        let mut progress = self.progress.lock().unwrap();
+        progress.stage = stage.into();
+        progress.detail = detail.into();
+    }
 }
 
 #[derive(Clone, Default)]
@@ -79,13 +133,7 @@ struct EngineStatus {
     state: String,
     message: String,
     managed: bool,
-}
-
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-enum EngineProbe {
-    Unavailable,
-    Compatible,
-    Incompatible,
+    progress: Option<StartupProgress>,
 }
 
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
@@ -166,21 +214,38 @@ fn engine_status_from_probe(
             state: "online".to_string(),
             message: "本地下载引擎运行正常".to_string(),
             managed,
+            progress: None,
         },
         EngineProbe::Incompatible => EngineStatus {
             state: "incompatible".to_string(),
-            message: "端口 8765 被旧版或不兼容的引擎占用".to_string(),
+            message: last_error
+                .unwrap_or_else(|| "端口 8765 上的服务不是兼容的下载引擎".to_string()),
             managed: false,
+            progress: None,
         },
         EngineProbe::Unavailable if starting => EngineStatus {
             state: "starting".to_string(),
             message: "正在准备本地下载引擎".to_string(),
             managed,
+            progress: None,
+        },
+        EngineProbe::Pending if starting => EngineStatus {
+            state: "starting".into(),
+            message: "等待本地服务完成健康检查".into(),
+            managed,
+            progress: None,
+        },
+        EngineProbe::Pending => EngineStatus {
+            state: "offline".into(),
+            message: last_error.unwrap_or_else(|| "8765 上的服务未完成健康检查，请重新检查".into()),
+            managed,
+            progress: None,
         },
         EngineProbe::Unavailable => EngineStatus {
             state: "offline".to_string(),
             message: last_error.unwrap_or_else(|| "本地下载引擎未运行".to_string()),
             managed,
+            progress: None,
         },
     }
 }
@@ -245,51 +310,35 @@ fn copy_directory_contents(source: &Path, destination: &Path) -> Result<(), Stri
     fs::rename(&staging, destination).map_err(|error| error.to_string())
 }
 
-fn health_body_is_compatible(body: &[u8]) -> bool {
-    let Ok(value) = serde_json::from_slice::<serde_json::Value>(body) else {
-        return false;
-    };
-    value.get("ok").and_then(|item| item.as_bool()) == Some(true)
-        && value
-            .get("apiRevision")
-            .and_then(|item| item.as_u64())
-            .unwrap_or(0)
-            >= 2
-        && value
-            .get("capabilities")
-            .and_then(|item| item.as_array())
-            .is_some_and(|items| {
-                items
-                    .iter()
-                    .any(|item| item.as_str() == Some("jobs.delete"))
-            })
+fn probe_engine() -> EngineProbe {
+    probe_engine_report().state
 }
 
-fn probe_engine() -> EngineProbe {
-    let address = SocketAddr::from(([127, 0, 0, 1], 8765));
-    let Ok(mut stream) = TcpStream::connect_timeout(&address, Duration::from_millis(250)) else {
-        return EngineProbe::Unavailable;
-    };
-    let _ = stream.set_read_timeout(Some(Duration::from_millis(500)));
-    let _ = stream.set_write_timeout(Some(Duration::from_millis(500)));
-    if stream
-        .write_all(b"GET /healthz HTTP/1.1\r\nHost: 127.0.0.1:8765\r\nConnection: close\r\n\r\n")
-        .is_err()
-    {
-        return EngineProbe::Incompatible;
+fn probe_engine_report() -> engine_probe::ProbeReport {
+    engine_probe::probe(
+        SocketAddr::from(([127, 0, 0, 1], 8765)),
+        Duration::from_millis(500),
+    )
+}
+
+fn listener_diagnostic(detail: &str) -> String {
+    let owner = Command::new("/usr/sbin/lsof")
+        .args(["-nP", "-a", "-iTCP:8765", "-sTCP:LISTEN", "-Fpc"])
+        .output()
+        .ok()
+        .map(|output| String::from_utf8_lossy(&output.stdout).into_owned())
+        .unwrap_or_default();
+    let mut descriptions = Vec::new();
+    let mut pid = "";
+    for line in owner.lines() {
+        if let Some(value) = line.strip_prefix('p') {
+            pid = value;
+        }
+        if let Some(value) = line.strip_prefix('c') {
+            descriptions.push(format!("{value} (PID {pid})"));
+        }
     }
-    let mut response = Vec::new();
-    if stream.read_to_end(&mut response).is_err() {
-        return EngineProbe::Incompatible;
-    }
-    let Some(body_offset) = response.windows(4).position(|window| window == b"\r\n\r\n") else {
-        return EngineProbe::Incompatible;
-    };
-    if health_body_is_compatible(&response[body_offset + 4..]) {
-        EngineProbe::Compatible
-    } else {
-        EngineProbe::Incompatible
-    }
+    format!("Port 8765 is occupied: {detail}。监听进程: {}。请关闭该服务或将其改用其他端口，再点击重新检查。", if descriptions.is_empty() { "未能获取；可运行 lsof -nP -iTCP:8765 -sTCP:LISTEN".into() } else { descriptions.join(", ") })
 }
 
 fn engine_get(path: &str, token: Option<&str>) -> Result<Vec<u8>, String> {
@@ -396,25 +445,52 @@ fn begin_tray_monitor(app: AppHandle, lifecycle: AppLifecycle) -> Result<(), Str
         .map_err(|error| error.to_string())
 }
 
-fn wait_for_engine(process: EngineProcess) -> Result<EngineProcess, String> {
+fn wait_for_engine(
+    mut process: EngineProcess,
+    manager: &EngineManager,
+) -> Result<EngineProcess, String> {
     #[cfg(debug_assertions)]
     let timeout = Duration::from_secs(15);
     #[cfg(not(debug_assertions))]
     let timeout = Duration::from_secs(60);
     let deadline = Instant::now() + timeout;
+    let mut last_event = String::new();
     while Instant::now() < deadline {
-        match probe_engine() {
-            EngineProbe::Compatible => return Ok(process),
+        if let Ok(event) = fs::read_to_string(startup_status_path()) {
+            if event != last_event {
+                record_startup_event(manager, &format!("ENGINE_STARTUP {event}"));
+                last_event = event;
+            }
+        }
+        if manager.stopping.load(Ordering::SeqCst) {
+            process.kill();
+            return Err("应用正在退出".into());
+        }
+        if let Some(error) = process.exit_error() {
+            process.kill();
+            return Err(format!("{error}；请查看引擎日志"));
+        }
+        let report = probe_engine_report();
+        match report.state {
+            EngineProbe::Compatible => {
+                manager.progress.lock().unwrap().yt_dlp = report.yt_dlp;
+                manager.stage("ready", "本地 API 与 yt-dlp 初始化完成");
+                let mut progress = manager.progress.lock().unwrap();
+                progress.elapsed_ms = progress.started.elapsed().as_millis() as u64;
+                let _ = fs::remove_file(startup_status_path());
+                return Ok(process);
+            }
             EngineProbe::Incompatible => {
                 process.kill();
-                return Err(
-                    "Port 8765 is occupied by an outdated or incompatible local engine".to_string(),
-                );
+                return Err(listener_diagnostic(&report.detail));
             }
-            EngineProbe::Unavailable => std::thread::sleep(Duration::from_millis(100)),
+            EngineProbe::Unavailable | EngineProbe::Pending => {
+                std::thread::sleep(Duration::from_millis(200))
+            }
         }
     }
     process.kill();
+    let _ = fs::remove_file(startup_status_path());
     Err(format!(
         "The local engine did not become ready within {} seconds",
         timeout.as_secs()
@@ -434,6 +510,34 @@ fn engine_log_path() -> PathBuf {
         .map(PathBuf::from)
         .unwrap_or_else(std::env::temp_dir);
     home.join("Library/Logs/m3u8-bridge/engine.log")
+}
+
+fn append_engine_log(line: &str) {
+    let path = engine_log_path();
+    if let Some(parent) = path.parent() {
+        let _ = fs::create_dir_all(parent);
+    }
+    if let Ok(mut log) = OpenOptions::new().create(true).append(true).open(path) {
+        let _ = writeln!(log, "{line}");
+    }
+}
+
+fn startup_status_path() -> PathBuf {
+    engine_log_path().with_file_name(format!("startup-{}.json", std::process::id()))
+}
+
+fn record_startup_event(manager: &EngineManager, line: &str) {
+    let Some(json) = line.strip_prefix("ENGINE_STARTUP ") else {
+        return;
+    };
+    let Ok(value) = serde_json::from_str::<serde_json::Value>(json) else {
+        return;
+    };
+    if let (Some(stage), Some(detail)) = (value["stage"].as_str(), value["detail"].as_str()) {
+        if matches!(stage, "initializing" | "ytdlp" | "healthcheck") {
+            manager.stage(stage, detail);
+        }
+    }
 }
 
 #[cfg(any(not(debug_assertions), test))]
@@ -480,18 +584,54 @@ fn listen_for_activation(app: AppHandle) -> Result<(), String> {
         .map_err(|error| error.to_string())
 }
 
-fn start_engine(app: &AppHandle) -> Result<EngineProcess, String> {
-    match probe_engine() {
-        EngineProbe::Compatible => return Ok(EngineProcess::External),
+fn start_engine(app: &AppHandle, manager: &EngineManager) -> Result<EngineProcess, String> {
+    if manager.stopping.load(Ordering::SeqCst) {
+        return Err("应用正在退出".into());
+    }
+    manager.stage("checking", "检查 127.0.0.1:8765 与现有引擎兼容性");
+    let deadline = Instant::now() + Duration::from_secs(5);
+    let report = loop {
+        let report = probe_engine_report();
+        if report.state != EngineProbe::Pending || Instant::now() >= deadline {
+            break report;
+        }
+        manager.stage("checking", &report.detail);
+        std::thread::sleep(Duration::from_millis(200));
+    };
+    match report.state {
+        EngineProbe::Compatible => {
+            manager.progress.lock().unwrap().yt_dlp = report.yt_dlp;
+            manager.stage("ready", "已连接现有兼容引擎");
+            let mut progress = manager.progress.lock().unwrap();
+            progress.elapsed_ms = progress.started.elapsed().as_millis() as u64;
+            return Ok(EngineProcess::External);
+        }
         EngineProbe::Incompatible => {
-            return Err("Port 8765 is occupied by an outdated yet another downloader engine. Close the stale engine and start the desktop app again.".to_string())
+            return Err(listener_diagnostic(&report.detail));
+        }
+        EngineProbe::Pending => {
+            return Err(format!(
+                "8765 上的服务健康检查超时: {}；尚不能判断兼容性。请稍后重新检查。",
+                report.detail
+            ))
         }
         EngineProbe::Unavailable => {}
     }
+    manager.stage("preparing", "准备 Python 与本地下载组件");
+    append_engine_log("Starting local engine components");
+    let status_path = startup_status_path();
+    if let Some(parent) = status_path.parent() {
+        fs::create_dir_all(parent).map_err(|error| error.to_string())?;
+    }
+    let _ = fs::remove_file(&status_path);
 
     #[cfg(not(debug_assertions))]
     {
         let mut vars = HashMap::new();
+        vars.insert(
+            "M3U8_BRIDGE_STARTUP_STATUS".into(),
+            status_path.to_string_lossy().into_owned(),
+        );
         vars.insert(
             "M3U8_BRIDGE_DESKTOP_PID".to_string(),
             std::process::id().to_string(),
@@ -508,12 +648,35 @@ fn start_engine(app: &AppHandle) -> Result<EngineProcess, String> {
                 ffprobe.to_string_lossy().into_owned(),
             );
         }
-        let (_events, child) = SidecarCommand::new_sidecar("m3u8-bridge-engine")
+        let (mut events, child) = SidecarCommand::new_sidecar("m3u8-bridge-engine")
             .map_err(|error| error.to_string())?
             .envs(vars)
             .spawn()
             .map_err(|error| error.to_string())?;
-        wait_for_engine(EngineProcess::Sidecar(child))
+        let child_exit = Arc::new(Mutex::new(None));
+        let event_exit = child_exit.clone();
+        manager.stage("launching", "已启动内置 Python 引擎；首次运行正在解包组件");
+        tauri::async_runtime::spawn(async move {
+            while let Some(event) = events.recv().await {
+                match event {
+                    CommandEvent::Stdout(line) | CommandEvent::Stderr(line) => {
+                        append_engine_log(&line);
+                        // The per-launch status file is authoritative for progress.
+                    }
+                    CommandEvent::Terminated(payload) => {
+                        *event_exit.lock().unwrap() = Some(format!(
+                            "引擎进程提前退出 (code {:?}, signal {:?})",
+                            payload.code, payload.signal
+                        ));
+                    }
+                    CommandEvent::Error(error) => {
+                        append_engine_log(&format!("Sidecar monitor: {error}"))
+                    }
+                    _ => {}
+                }
+            }
+        });
+        wait_for_engine(EngineProcess::Sidecar(child, child_exit), manager)
     }
 
     #[cfg(debug_assertions)]
@@ -523,6 +686,7 @@ fn start_engine(app: &AppHandle) -> Result<EngineProcess, String> {
         let mut command = Command::new(root.join("scripts/run-engine.sh"));
         command.current_dir(root);
         command.env("M3U8_BRIDGE_DESKTOP_PID", std::process::id().to_string());
+        command.env("M3U8_BRIDGE_STARTUP_STATUS", &status_path);
         let log_path = engine_log_path();
         if let Some(parent) = log_path.parent() {
             std::fs::create_dir_all(parent)
@@ -541,25 +705,61 @@ fn start_engine(app: &AppHandle) -> Result<EngineProcess, String> {
             .spawn()
             .map(EngineProcess::Native)
             .map_err(|error| format!("Could not start the local engine: {error}"))?;
-        wait_for_engine(process)
+        manager.stage("launching", "已启动 Miniforge Python，等待引擎初始化");
+        wait_for_engine(process, manager)
     }
 }
 
 fn begin_engine_startup(app: AppHandle, manager: EngineManager) -> Result<(), String> {
-    manager.starting.store(true, Ordering::SeqCst);
+    if manager.starting.swap(true, Ordering::SeqCst) {
+        return Ok(());
+    }
     *manager.last_error.lock().unwrap() = None;
+    *manager.progress.lock().unwrap() = StartupProgress::default();
     let thread_manager = manager.clone();
     std::thread::Builder::new()
         .name("engine-startup".to_string())
         .spawn(move || {
             let _restart = thread_manager.restart_lock.lock().unwrap();
-            let result = retry_startup(3, Duration::from_millis(500), || start_engine(&app));
+            let old_process = thread_manager.process.lock().unwrap().take();
+            let stopped_owned = old_process.as_ref().is_some_and(EngineProcess::is_owned);
+            if let Some(process) = old_process {
+                thread_manager.stage("checking", "正在停止旧引擎并等待端口释放");
+                process.kill();
+            }
+            let released = if stopped_owned {
+                engine_probe::wait_for_release(
+                    Duration::from_secs(5),
+                    Duration::from_millis(100),
+                    probe_engine_report,
+                )
+            } else {
+                Ok(())
+            };
+            let mut attempt = 0;
+            let result = released.and_then(|_| {
+                retry_startup(3, Duration::from_millis(500), || {
+                    attempt += 1;
+                    thread_manager.progress.lock().unwrap().attempt = attempt;
+                    start_engine(&app, &thread_manager)
+                })
+            });
             match result {
                 Ok(process) => {
-                    *thread_manager.process.lock().unwrap() = Some(process);
+                    let mut current = thread_manager.process.lock().unwrap();
+                    if thread_manager.stopping.load(Ordering::SeqCst) {
+                        process.kill();
+                        thread_manager.starting.store(false, Ordering::SeqCst);
+                        return;
+                    }
+                    *current = Some(process);
                     *thread_manager.last_error.lock().unwrap() = None;
                 }
                 Err(error) => {
+                    append_engine_log(&format!("Engine startup failed: {error}"));
+                    let mut progress = thread_manager.progress.lock().unwrap();
+                    progress.detail = error.clone();
+                    progress.elapsed_ms = progress.started.elapsed().as_millis() as u64;
                     *thread_manager.last_error.lock().unwrap() = Some(error);
                 }
             }
@@ -574,8 +774,7 @@ fn begin_engine_startup(app: AppHandle, manager: EngineManager) -> Result<(), St
         })
 }
 
-#[tauri::command]
-fn engine_status(manager: State<'_, EngineManager>) -> EngineStatus {
+fn manager_status(manager: &EngineManager) -> EngineStatus {
     let managed = manager
         .process
         .lock()
@@ -583,12 +782,36 @@ fn engine_status(manager: State<'_, EngineManager>) -> EngineStatus {
         .as_ref()
         .is_some_and(EngineProcess::is_owned);
     let last_error = manager.last_error.lock().unwrap().clone();
-    engine_status_from_probe(
-        probe_engine(),
+    let report = if manager.starting.load(Ordering::SeqCst) {
+        None
+    } else {
+        Some(probe_engine_report())
+    };
+    let last_error = last_error.or_else(|| {
+        report
+            .as_ref()
+            .filter(|report| report.state == EngineProbe::Incompatible)
+            .map(|report| listener_diagnostic(&report.detail))
+    });
+    let mut status = engine_status_from_probe(
+        report
+            .map(|report| report.state)
+            .unwrap_or(EngineProbe::Unavailable),
         managed,
         last_error,
         manager.starting.load(Ordering::SeqCst),
-    )
+    );
+    let mut progress = manager.progress.lock().unwrap().clone();
+    if manager.starting.load(Ordering::SeqCst) {
+        progress.elapsed_ms = progress.started.elapsed().as_millis() as u64;
+    }
+    status.progress = Some(progress);
+    status
+}
+
+#[tauri::command]
+fn engine_status(manager: State<'_, EngineManager>) -> EngineStatus {
+    manager_status(&manager)
 }
 
 #[tauri::command]
@@ -596,43 +819,22 @@ fn restart_engine(
     app: AppHandle,
     manager: State<'_, EngineManager>,
 ) -> Result<EngineStatus, String> {
-    let _restart = manager
-        .restart_lock
-        .try_lock()
-        .map_err(|_| "引擎正在重启，请稍候".to_string())?;
-    manager.starting.store(true, Ordering::SeqCst);
-    let result = (|| {
-        if let Some(process) = manager.process.lock().unwrap().take() {
+    if manager.starting.load(Ordering::SeqCst) {
+        return Ok(manager_status(&manager));
+    }
+    {
+        let _restart = manager
+            .restart_lock
+            .try_lock()
+            .map_err(|_| "引擎正在重启，请稍候".to_string())?;
+        if let Some(process) = manager.process.lock().unwrap().as_ref() {
             if !process.is_owned() && probe_engine() == EngineProbe::Compatible {
-                *manager.process.lock().unwrap() = Some(process);
                 return Err("当前引擎由其他桌面实例管理，无法在这里重启".to_string());
             }
-            process.kill();
         }
-        let deadline = Instant::now() + Duration::from_secs(5);
-        while probe_engine() != EngineProbe::Unavailable && Instant::now() < deadline {
-            std::thread::sleep(Duration::from_millis(100));
-        }
-        match retry_startup(3, Duration::from_millis(500), || start_engine(&app)) {
-            Ok(process) => {
-                let managed = process.is_owned();
-                *manager.process.lock().unwrap() = Some(process);
-                *manager.last_error.lock().unwrap() = None;
-                Ok(engine_status_from_probe(
-                    EngineProbe::Compatible,
-                    managed,
-                    None,
-                    false,
-                ))
-            }
-            Err(error) => {
-                *manager.last_error.lock().unwrap() = Some(error.clone());
-                Err(error)
-            }
-        }
-    })();
-    manager.starting.store(false, Ordering::SeqCst);
-    result
+    }
+    begin_engine_startup(app, (*manager).clone())?;
+    Ok(manager_status(&manager))
 }
 
 fn extension_install_path() -> Result<PathBuf, String> {
@@ -804,6 +1006,7 @@ fn main() {
     app.run(move |_handle, event| {
         if matches!(event, RunEvent::Exit) {
             lifecycle_for_exit.quitting.store(true, Ordering::SeqCst);
+            manager_for_exit.stopping.store(true, Ordering::SeqCst);
             if let Some(child) = manager_for_exit.process.lock().unwrap().take() {
                 child.kill();
             }
