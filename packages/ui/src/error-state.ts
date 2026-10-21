@@ -5,6 +5,7 @@ export interface FriendlyError {
 }
 
 const RULES: Array<{ pattern: RegExp; title: string; guidance: string }> = [
+  { pattern: /(?:no video stream|audio-only|YouTube media capture requires)/i, title: '资源不是完整视频', guidance: '请使用原始视频网页地址，或刷新网页后重新捕获完整视频。单独的音频轨、分片不能作为视频下载。' },
   { pattern: /(?:local engine|本地下载引擎|引擎进程|引擎未运行|port 8765|端口 8765|did not become ready)/i, title: '本地引擎不可用', guidance: '查看启动阶段与技术详情后重试；端口冲突时按提示确认监听进程。' },
   { pattern: /(?:ssl_|ssl\s|tls|certificate)/i, title: '安全连接失败', guidance: '请检查代理连接，或稍后重试该任务。' },
   { pattern: /(?:\b429\b|too many requests|rate.?limit)/i, title: '请求过于频繁', guidance: '服务端正在限流，请稍后重试或降低分片并发。' },

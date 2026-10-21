@@ -23,6 +23,25 @@ cargo check --manifest-path src-tauri/Cargo.toml
 
 这些检查分别覆盖共享 TypeScript 类型、扩展悬浮层状态、桌面端构建、扩展构建、媒体类型捕获、Python 网关重写、下载分流、MP4 规范化和代码空白。
 
+### 视频完整性回归
+
+`tests/test_download_source.py` 使用保留域名测试网页识别、CDN 单轨回到原网页、去除跨域凭据和 Range、禁止网页 curl 降级；真实 FFmpeg 本地样本检查 `_run_job` 发布的 MP4 同时包含视频和音频。`tests/test_server.py` 检查纯音频输入在转码前明确失败且保留来源文件、最终合并路径优先于音频路径、残留分片不得成为输出。视频映射和最终校验保持强制。
+
+真实站点验收须设置可用代理，分别测试 YouTube 网页手动提交和浏览器 CDN 捕获。确认输出视频轨、音频轨、时长与画面一致；短样本下载不代表已完成全长视频验收。测试日志、带签名的 URL 和视频文件不得提交到仓库。
+
+### 悬浮控件浏览器回归
+
+构建后运行真实 Chromium DOM 回归脚本（需自行安装 Playwright 及 Chromium；也可指定本地 Chrome）：
+
+```sh
+pnpm build:extension
+node scripts/test-extension-overlay.mjs
+```
+
+脚本默认导入 `playwright`；不在项目依赖中安装时，可用 `M3U8_BRIDGE_PLAYWRIGHT_MODULE` 指定其 JS 入口的绝对路径，`M3U8_BRIDGE_CHROME_PATH` 指定 Chrome 可执行文件。可用 `M3U8_BRIDGE_OVERLAY_SCREENSHOT` 指定截图路径。浏览器运行在临时独立配置中，不修改用户现有 Chrome 实例。
+
+覆盖：收起后新增 12 个资源、元数据更新和切换视频均保持折叠；资源计数更新；展开后可滚动且不遮挡整个视频；300px 窗口无横向溢出；下载和关闭仍可点击。测试使用 loopback 视频元素和模拟 Chrome 消息，不代替真实扩展 webRequest 嗅探验收。
+
 ## 引擎健康检查
 
 启动 `scripts/run-engine.sh` 后执行：
@@ -56,8 +75,9 @@ curl http://127.0.0.1:8765/api/session
 5. 依次移动到其他已捕获视频，确认悬浮区域切换到当前视频且不会持续叠加旧区域。
 6. 点击资源行，确认状态变为“已提交下载任务”，桌面端出现任务并最终生成可播放 MP4。
 7. 点击单条红色 `×`，确认该码流消失；点击面板顶部 `×`，确认当前视频的全部提示关闭。
-8. 检查请求头和 Cookie 没有出现在设置文件中。
-9. 下载完成后用 Quick Look、浏览器和 `ffprobe` 验证文件。
+8. 点击“收起”后继续播放、切换清晰度、切换视频和滚动页面，确认新增资源只增加计数而不展开；点击“展开”可查看全部保留资源。刷新页面恢复默认展开。
+9. 检查请求头和 Cookie 没有出现在设置文件中。
+10. 下载完成后用 Quick Look、浏览器和 `ffprobe` 验证文件。
 
 ## Tauri 验证
 
@@ -69,10 +89,10 @@ cargo tauri build --bundles app
 公开发行前还必须运行：
 
 ```sh
-pnpm release:package -- v0.1.3
+pnpm release:package -- v0.1.4
 ```
 
-确认 `release/v0.1.3/SHA256SUMS.txt` 校验通过，并使用 `scripts/verify-release.sh` 检查签名、架构、Homebrew 路径闭包、内置扩展和法律材料。对应源码归档必须包含主项目、yt-dlp 子模块、Homebrew 配方与收据、依赖许可证、下载的源码输入及 PyInstaller 构建工具源码；`PYTHON-DEPENDENCIES.json` 不应出现用户目录中的无关 Python 包。
+确认 `release/v0.1.4/SHA256SUMS.txt` 校验通过，并使用 `scripts/verify-release.sh` 检查签名、架构、Homebrew 路径闭包、内置扩展和法律材料。对应源码归档必须包含主项目、yt-dlp 子模块、Homebrew 配方与收据、依赖许可证、下载的源码输入及 PyInstaller 构建工具源码；`PYTHON-DEPENDENCIES.json` 不应出现用户目录中的无关 Python 包。
 
 发布构建前需运行 `scripts/build-sidecar.sh`。构建后验证包内至少包含：
 
@@ -126,3 +146,10 @@ GitHub Actions 使用锁文件做干净安装。修改 Node 依赖后应至少�
 Rust 的 `engine_probe` 测试使用临时 loopback 端口模拟空闲端口、慢响应、HTTP 404 外部服务，以及返回 Content-Length 后保持连接的健康服务。慢响应应为等待状态，外部服务应为真实冲突，完整健康响应应立即通过。重启测试还确认等待旧监听端口释放，不会把尚未退出的旧进程误当作可复用引擎。
 
 桌面端 `engine-startup.test.ts` 检查实际阶段映射与耗时显示。手动验收时确认：启动阶段逐项更新、失败保留详情、处理冲突后可重新检查、引擎提前退出可见、发布版日志可打开、启动中退出应用不遗留引擎。
+
+## 2026-10-21 回归记录
+
+- `pnpm verify` 通过：35 个 TypeScript 测试、87 个 Python 测试、18 个 Rust 测试，公开树检查、类型检查和桌面/扩展构建均通过。
+- 真实 Chrome 悬浮层 DOM 回归通过，并人工检查展开/收起截图；连续新增资源不会自动展开，展开列表限高且无横向溢出。
+- 用户报告的 YouTube 视频通过代理，以默认格式策略和低清晰度策略分别下载前 8 秒样本；默认样本为 1920×1080、H.264/AAC MP4，时长 8.001 秒，音视频合并、引擎校验和全样本解码通过。未执行整段约 45 分钟视频下载，也未验证 Quick Look 原生界面。
+- 本轮验证针对源码和扩展构建；未重新发布安装包。Rust 仍有上游 `block v0.1.6` 的未来兼容性警告，不影响本轮编译或测试。

@@ -300,6 +300,39 @@ class MediaRoutingTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             Engine._capture_kind({'url': 'https://media.example/player.js', 'contentType': 'application/javascript'})
 
+    def test_audio_only_input_is_rejected_before_video_conversion(self):
+        ffmpeg = shutil.which('ffmpeg')
+        if not ffmpeg:
+            self.skipTest('ffmpeg required')
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            source = root / 'audio.m4a'
+            subprocess.run([ffmpeg, '-v', 'error', '-f', 'lavfi', '-i', 'sine=frequency=440',
+                            '-t', '0.1', '-c:a', 'aac', str(source)], check=True)
+            with patch.object(Engine, '_encode_mp4', wraps=Engine._encode_mp4) as encoder:
+                with self.assertRaisesRegex(RuntimeError, 'no video stream.*audio-only'):
+                    Engine._normalize_output(source, root, 'video', ffmpeg)
+            encoder.assert_not_called()
+            self.assertTrue(source.is_file())
+            self.assertFalse((root / 'video.mp4').exists())
+
+    def test_output_discovery_prefers_final_merged_path_over_prepared_audio(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            audio = root / 'clip.m4a'
+            merged = root / 'clip.mp4'
+            audio.write_bytes(b'audio')
+            merged.write_bytes(b'merged')
+            self.assertEqual(Engine._find_output(str(audio), root, 'clip', {'filepath': str(merged)}), merged)
+
+    def test_output_discovery_does_not_promote_partial_or_intermediate_tracks(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            for name in ('clip.mp4.part', 'clip.f137.mp4', 'clip.f140.m4a', 'clip.mp4.ytdl'):
+                (root / name).write_bytes(b'incomplete')
+            with self.assertRaisesRegex(RuntimeError, 'without creating'):
+                Engine._find_output(str(root / 'clip.mp4'), root, 'clip')
+
     def test_normalizes_non_h264_video_to_playable_mp4(self):
         ffmpeg = shutil.which('ffmpeg')
         if not ffmpeg:

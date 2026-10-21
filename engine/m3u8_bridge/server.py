@@ -21,6 +21,7 @@ from urllib.parse import urlsplit
 from . import __version__
 from .gateway import HLSGateway
 from .history import HistoryStore
+from .download_source import download_source
 
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -191,6 +192,8 @@ class Engine:
 
     @staticmethod
     def _capture_kind(capture: dict) -> str:
+        if download_source(capture)[2]:
+            return 'direct'
         explicit = str(capture.get('kind') or '').lower()
         if explicit in {'hls', 'dash', 'direct'}:
             return explicit
@@ -546,13 +549,14 @@ class Engine:
         try:
             self._update(job, status='probing')
             capture = job['_capture']
+            source_url, download_capture, site_video = download_source(capture)
             kind = job['kind']
             cancel_event = job['_cancel']
             headers = dict(capture.get('headers') or {})
             if capture.get('cookie'):
                 headers['Cookie'] = capture['cookie']
             proxy = str(request['proxy']) if 'proxy' in request else str(settings.get('proxy') or '')
-            playlist_url = capture['url']
+            playlist_url = source_url
             if kind == 'hls':
                 playlist_url = self.gateway.register(job['id'], capture['url'], headers, proxy, cancel_event)
             output_dir = Path(str(request.get('outputDir') or settings['outputDir'])).expanduser()
@@ -583,7 +587,7 @@ class Engine:
 
             self._update(job, status='downloading', speed='等待分片响应')
             if yt_dlp is None:
-                if kind != 'direct':
+                if kind != 'direct' or site_video:
                     raise RuntimeError('yt-dlp is unavailable. Run scripts/bootstrap.sh to install the Python engine.')
                 output_path = self._download_direct_fallback(job, capture, download_dir, stem, ffmpeg, proxy)
             else:
@@ -591,7 +595,7 @@ class Engine:
                     download_dir,
                     stem,
                     ffmpeg,
-                    capture,
+                    download_capture,
                     proxy,
                     progress_hook,
                     int(request.get('concurrency') or settings.get('concurrency') or 8),
@@ -600,9 +604,9 @@ class Engine:
                     with yt_dlp.YoutubeDL(options) as downloader:
                         info = downloader.extract_info(playlist_url, download=True)
                         prepared = downloader.prepare_filename(info)
-                    output_path = self._find_output(prepared, download_dir, stem)
+                    output_path = self._find_output(prepared, download_dir, stem, info)
                 except Exception:
-                    if kind != 'direct':
+                    if kind != 'direct' or site_video or cancel_event.is_set():
                         raise
                     output_path = self._download_direct_fallback(job, capture, download_dir, stem, ffmpeg, proxy)
             self._ensure_job_active(job)
@@ -706,15 +710,14 @@ class Engine:
                 current_size = raw_path.stat().st_size
                 self._mark_activity(job)
                 self._update(job, downloadedBytes=current_size, lastActivityAt=job['lastActivityAt'], stallReason='')
-            output_path = output_dir / f'{stem}.mp4'
-            self._encode_mp4(
+            return self._normalize_output(
                 raw_path,
-                output_path,
+                output_dir,
+                stem,
                 ffmpeg,
                 job.get('_cancel'),
                 (lambda: self._process_activity(job)) if job.get('_cancel') else None,
             )
-            return output_path
         finally:
             shutil.rmtree(work_dir, ignore_errors=True)
 
@@ -744,6 +747,9 @@ class Engine:
     ) -> Path:
         streams = cls._probe_streams(source)
         video = next((stream for stream in streams if stream.get('codec_type') == 'video'), None)
+        if not video:
+            raise RuntimeError('The downloaded resource contains no video stream (audio-only or incomplete media). '
+                               'Use the original video page or capture the complete HLS/DASH/video resource again.')
         audio = next((stream for stream in streams if stream.get('codec_type') == 'audio'), None)
         pixel_format = video.get('pix_fmt') if video else None
         quicklook_pixels = {None, 'yuv420p', 'yuvj420p'}
@@ -1027,11 +1033,20 @@ class Engine:
             raise RuntimeError(f'{image_format} decode failed: {detail}')
 
     @staticmethod
-    def _find_output(prepared: str, output_dir: Path, stem: str) -> Path:
-        candidates = [Path(prepared), Path(prepared).with_suffix('.mp4')]
-        candidates.extend(sorted(output_dir.glob(f'{stem}.*'), key=lambda path: path.stat().st_mtime, reverse=True))
+    def _find_output(prepared: str, output_dir: Path, stem: str, info: dict | None = None) -> Path:
+        info = info or {}
+        paths = [info.get('filepath')]
+        paths.extend(item.get('filepath') for item in info.get('requested_downloads') or [])
+        candidates = [Path(path) for path in paths if path]
+        candidates.extend([output_dir / f'{stem}.mp4', Path(prepared)])
+        media_suffixes = {'.mp4', '.webm', '.mkv', '.mov', '.m4v', '.flv', '.f4v', '.avi', '.mpeg', '.mpg', '.ogv', '.3gp', '.m4a', '.ts', '.m2ts'}
+        candidates.extend(sorted(output_dir.iterdir(), key=lambda path: path.stat().st_mtime, reverse=True))
         for candidate in candidates:
-            if candidate.is_file() and candidate.stat().st_size > 0:
+            # Only final single-extension filenames in this job directory qualify.
+            # Never treat a .part, .ytdl or .f<format-id> track as a merged result.
+            if (candidate.parent.resolve() == output_dir.resolve() and candidate.stem == stem
+                    and candidate.suffix.lower() in media_suffixes
+                    and candidate.is_file() and candidate.stat().st_size > 0):
                 return candidate
         raise RuntimeError('yt-dlp finished without creating an output file')
 

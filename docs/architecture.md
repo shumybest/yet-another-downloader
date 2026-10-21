@@ -64,4 +64,8 @@ Tauri 将引擎归类为 `starting`、`online`、`offline` 或 `incompatible`，
 
 HLS 使用本地网关和 yt-dlp 原生分片下载，DASH 与直链视频直接交给 yt-dlp，并传递浏览器请求头和代理。直链在 yt-dlp 失败时使用可取消 curl 拉取后交给 ffmpeg。所有任务先写入输出目录中的隐藏任务临时目录；H.264 仅在 Quick Look 兼容像素格式下直接保留，HEVC 还要求 `hvc1` 标签，否则转为 H.264/AAC。成品依次执行 ffprobe、全文件数据包扫描、开头解码和长视频结尾解码，全部成功后才原子发布；同名文件自动编号。探测到 PNG 分片时，下载器会区分纯图片 HLS 与在完整 PNG 后包装 MPEG-TS 的媒体分片；后者提取真实 TS 并保留原始视频和音频。
 
+`download_source.py` 在媒体分流前解析受支持的 YouTube 视频网页；Googlevideo CDN 捕获只在携带有效 YouTube `pageUrl` 时转交网页解析器，以避免保存单轨或浏览器范围请求。跨域 CDN 凭据和范围头不转发；此类网页任务禁止 curl 降级。结果查找优先使用 yt-dlp 的最终路径，仅接受当前任务目录下的最终媒体文件，排除临时分轨和下载状态文件。规范化前必须存在视频轨，否则明确失败而非执行无效的视频映射。
+
+扩展悬浮层将收起偏好保存在内容脚本页面状态，而非每次重建的 DOM 或捕获记录中；新增资源、元数据、滚动和视频切换只重绘，不改变该偏好。展开列表单独滚动，收起时不渲染资源行，但继续捕获并更新计数。
+
 `scripts/build-sidecar.sh` 通过 `engine/sidecar_entry.py` 用 PyInstaller 打包 engine/yt-dlp，并复制 ffmpeg/ffprobe。macOS 构建随后使用 `scripts/bundle_macos_dylibs.py` 递归收集 Homebrew ffmpeg 的非系统依赖并改写为包内相对路径。`scripts/stage-extension.sh` 将扩展生产构建放入 Tauri resources，桌面端命令再把它释放到用户 Application Support。发布机仍需分别构建 x86_64 和 arm64，完成正式签名与安装验收。

@@ -18,6 +18,7 @@
 ## What it does
 
 - Detects HLS, MPEG-DASH, MP4, WebM, MOV, FLV, MPEG, OGV, and 3GP resources requested by a browser tab.
+- Resolves YouTube video pages and their captured CDN tracks through yt-dlp to download complete video and audio.
 - Shows available renditions, resolution, bitrate, duration, codec, and estimated size when the source exposes that information.
 - Downloads through a configurable proxy with bounded retries, cancellation, stall detection, and concurrent HLS fragment fetching.
 - Normalizes output to a playable MP4 when stream copying is not compatible with common macOS players or Quick Look.
@@ -28,6 +29,8 @@
 ## Browser capture
 
 The Chrome extension attaches the capture panel to the matching video instead of the page corner. It groups the available renditions and shows resolution, bitrate, codec, duration, and source details before a task is sent to the desktop app.
+
+Collapse the panel to keep only its header and resource count. New captures and metadata updates preserve the collapsed state for the current page; expanding restores the scrollable resource list.
 
 <p align="center">
   <img src="docs/images/chrome-capture.png" width="1200" alt="Chrome extension capture panel attached to a video with 4K, 1080p, and 720p HLS renditions" />

@@ -11,6 +11,8 @@ test('classifies common download failures and preserves raw details', () => {
     ['No space left on device', '磁盘空间不足'],
     ['Could not resolve host: media.example', '无法连接视频源'],
     ['Port 8765 is occupied by an outdated local engine', '本地引擎不可用'],
+    ['The downloaded resource contains no video stream (audio-only or incomplete media)', '资源不是完整视频'],
+    ['YouTube media capture requires its original page URL', '资源不是完整视频'],
   ] as const;
 
   for (const [detail, title] of cases) {

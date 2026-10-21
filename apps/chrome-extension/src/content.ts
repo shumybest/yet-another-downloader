@@ -15,6 +15,8 @@ let activeAnchor: HTMLElement | null = null;
 let hoveredAnchor: HTMLElement | null = null;
 let host: HTMLDivElement | null = null;
 let renderScheduled = false;
+// Page-wide preference: captures, metadata updates and video switches must not expand it.
+let collapsed = false;
 
 function kindLabel(kind: OverlayCapture['kind']): string {
   return ({ hls: 'HLS', dash: 'DASH', direct: 'MP4' }[kind || 'direct']);
@@ -216,9 +218,14 @@ function render(): void {
   style.textContent = `
     :host { all: initial; }
     *, *::before, *::after { box-sizing: border-box; }
-    .panel { position: fixed; width: min(320px, calc(100vw - 16px)); max-width: calc(100vw - 16px); max-height: min(70vh, 620px); overflow-x: hidden; overflow-y: auto; border: 1px solid rgba(16, 32, 43, .62); border-radius: 8px; background: rgba(220, 234, 242, .98); box-shadow: 0 4px 14px rgba(10, 25, 35, .3); color: #10202b; font-family: -apple-system, BlinkMacSystemFont, "Helvetica Neue", sans-serif; pointer-events: auto; }
+    .panel { position: fixed; width: min(320px, calc(100vw - 16px)); max-width: calc(100vw - 16px); overflow: hidden; border: 1px solid rgba(16, 32, 43, .62); border-radius: 8px; background: rgba(220, 234, 242, .98); box-shadow: 0 4px 14px rgba(10, 25, 35, .3); color: #10202b; font-family: -apple-system, BlinkMacSystemFont, "Helvetica Neue", sans-serif; pointer-events: auto; }
+    .panel.collapsed { width: min(240px, calc(100vw - 16px)); }
+    .resources { overflow-x: hidden; overflow-y: auto; overscroll-behavior: contain; }
     .head { display: flex; align-items: center; justify-content: space-between; min-width: 0; min-height: 30px; padding: 5px 7px 5px 10px; border-bottom: 1px solid rgba(16, 32, 43, .25); font-size: 11px; font-weight: 800; }
     .head-label { display: flex; min-width: 0; align-items: center; gap: 6px; overflow-wrap: anywhere; word-break: break-word; white-space: normal; }
+    .head-actions { display: flex; flex-shrink: 0; align-items: center; gap: 6px; }
+    .toggle { appearance: none; border: 1px solid #9ab2bf; border-radius: 4px; padding: 2px 5px; background: #eef6fb; color: #31515d; font: inherit; font-size: 10px; cursor: pointer; }
+    .toggle:hover, .toggle:focus-visible { background: white; }
     .pulse { width: 7px; height: 7px; border-radius: 50%; background: #39a96b; box-shadow: 0 0 0 3px rgba(57, 169, 107, .16); }
     .close-all, .dismiss { appearance: none; border: 0; cursor: pointer; line-height: 1; }
     .close-all { padding: 2px 3px; color: #4e6570; background: transparent; font-size: 15px; font-weight: 900; }
@@ -240,28 +247,47 @@ function render(): void {
   root.appendChild(style);
 
   const rect = activeAnchor.getBoundingClientRect();
-  const width = Math.max(0, Math.min(320, window.innerWidth - 16));
+  const width = Math.max(0, Math.min(collapsed ? 240 : 320, window.innerWidth - 16));
   const renditionCount = group.reduce((total, capture) => total + Math.max(0, capture.mediaInfo?.renditions?.length ?? 0), 0);
-  const maxHeight = Math.max(0, Math.min(620, window.innerHeight - 16));
-  const estimatedHeight = HEADER_HEIGHT + group.reduce((total, capture) => total + ROW_HEIGHT + (capture.mediaInfo?.renditions?.length ?? 0) * 24, 0);
-  const height = Math.min(maxHeight, estimatedHeight);
+  const listHeight = Math.max(0, Math.min(320, rect.height / 2, window.innerHeight - HEADER_HEIGHT - 18));
+  const estimatedHeight = group.reduce((total, capture) => total + ROW_HEIGHT + (capture.mediaInfo?.renditions?.length ?? 0) * 24, 0);
+  const height = HEADER_HEIGHT + 2 + (collapsed ? 0 : Math.min(listHeight, estimatedHeight));
   const left = Math.max(8, Math.min(window.innerWidth - width - 8, rect.right - width - 5));
   let top = rect.top - height - 4;
   if (top < 8) top = Math.min(window.innerHeight - height - 8, rect.top + 5);
 
-  const panel = createElement('section', 'panel');
+  const panel = createElement('section', collapsed ? 'panel collapsed' : 'panel');
   panel.style.left = `${left}px`;
   panel.style.top = `${Math.max(8, top)}px`;
   const head = createElement('header', 'head');
   const label = createElement('span', 'head-label');
   label.append(createElement('i', 'pulse'), document.createTextNode(`发现媒体 · ${group.length}路${renditionCount ? ` · ${renditionCount}档` : ''}`));
+  const actions = createElement('span', 'head-actions');
+  const toggle = createElement('button', 'toggle', collapsed ? '展开' : '收起');
+  toggle.type = 'button';
+  toggle.title = collapsed ? '展开媒体列表' : '收起媒体列表';
+  toggle.setAttribute('aria-label', toggle.title);
+  toggle.setAttribute('aria-expanded', String(!collapsed));
+  toggle.addEventListener('click', () => {
+    collapsed = !collapsed;
+    scheduleRender();
+  });
   const closeAll = createElement('button', 'close-all', '×');
   closeAll.type = 'button';
   closeAll.title = '关闭此视频的下载提示';
   closeAll.setAttribute('aria-label', '关闭此视频的下载提示');
   closeAll.addEventListener('click', closeActiveGroup);
-  head.append(label, closeAll);
+  actions.append(toggle, closeAll);
+  head.append(label, actions);
   panel.appendChild(head);
+
+  if (collapsed) {
+    root.appendChild(panel);
+    return;
+  }
+  const resources = createElement('div', 'resources');
+  resources.style.maxHeight = `${listHeight}px`;
+  panel.appendChild(resources);
 
   for (const capture of group) {
     const row = createElement('div', 'row');
@@ -290,7 +316,7 @@ function render(): void {
     dismiss.setAttribute('aria-label', '移除这个码流');
     dismiss.addEventListener('click', event => { event.stopPropagation(); dismissCapture(capture.id); });
     row.append(download, dismiss);
-    panel.appendChild(row);
+    resources.appendChild(row);
   }
   root.appendChild(panel);
 }

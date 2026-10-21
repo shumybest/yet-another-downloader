@@ -242,7 +242,7 @@ function ManualJobDrawer({ client, onCreated, onClose }: {
     <aside className="settings-drawer manual-job-drawer" role="dialog" aria-modal="true" aria-label="新建下载任务">
       <header><div><p className="eyebrow">NEW DOWNLOAD</p><h2>新建下载</h2></div><button className="drawer-close" disabled={submitting} onClick={onClose} aria-label="关闭新建下载">×</button></header>
       <form className="settings-form manual-job-form" onSubmit={event => void submit(event)} noValidate>
-        <label>媒体地址 <span className="required-mark">*</span><input autoFocus type="text" inputMode="url" autoCapitalize="off" autoComplete="off" spellCheck={false} value={url} placeholder="https://media.example.test/video.mp4" onChange={event => { setUrl(event.target.value); setInputError(''); setError(''); }} aria-required="true" aria-invalid={!!inputError} /><small>粘贴 HLS（m3u8）、DASH（mpd）或视频直链，不支持普通网页地址。</small></label>
+        <label>媒体地址 <span className="required-mark">*</span><input autoFocus type="text" inputMode="url" autoCapitalize="off" autoComplete="off" spellCheck={false} value={url} placeholder="https://media.example.test/video.mp4" onChange={event => { setUrl(event.target.value); setInputError(''); setError(''); }} aria-required="true" aria-invalid={!!inputError} /><small>粘贴 YouTube 视频网页、HLS（m3u8）、DASH（mpd）或视频直链。其他普通网页请使用扩展捕获。</small></label>
         <label>资源类型<select value={kind} onChange={event => setKind(event.target.value as 'auto' | MediaKind)}><option value="auto">自动识别</option><option value="hls">HLS 播放列表</option><option value="dash">DASH 播放列表</option><option value="direct">视频直链</option></select><small>链接没有媒体扩展名时，手动选择正确类型。</small></label>
         <label>任务名称（可选）<input value={title} placeholder="留空使用默认名称" onChange={event => setTitle(event.target.value)} /></label>
         <p className="manual-job-note">输出目录、代理和并发沿用“设置”中的全局配置。需要网页 Cookie 或特殊请求头时，请使用 Chrome 扩展捕获。</p>
@@ -320,7 +320,7 @@ function HelpDrawer({ extensionPath, busy, onPrepare, onOpenChrome, onClose }: {
         <button className="button button-ghost" disabled={!extensionPath || busy} onClick={() => void onPrepare(true)}>在 Finder 中显示</button>
       </div>
       <div className="extension-path"><span>加载目录</span><code>{extensionPath || '~/Library/Application Support/m3u8-bridge/chrome-extension'}</code></div>
-      <footer><span>版本 0.1.3</span><span>本地处理，不上传捕获凭据</span></footer>
+      <footer><span>版本 0.1.4</span><span>本地处理，不上传捕获凭据</span></footer>
     </aside>
   </div>;
 }
