@@ -14,6 +14,16 @@ export function formatSpeed(bytesPerSecond = 0): string {
   return bytesPerSecond > 0 ? `${formatBytes(bytesPerSecond)}/s` : '';
 }
 
+export function processingView(job: Job, now = Date.now()) {
+  if (!['muxing', 'validating'].includes(job.status)) return null;
+  const labels: Record<string, string> = { merging: '合并封装', transcoding: '转码为 H.264', scanning: '完整文件扫描', 'checking-head': '开头解码校验', 'checking-tail': '结尾解码校验' };
+  const percent = typeof job.processingProgress === 'number' && Number.isFinite(job.processingProgress) ? Math.min(99.9, Math.max(0, job.processingProgress)) : null;
+  const elapsed = Math.max(0, Math.floor((now - (job.processingStartedAt || now)) / 1000));
+  const clock = (value: number) => `${Math.floor(value / 60)}:${String(Math.floor(value % 60)).padStart(2, '0')}`;
+  return { percent, label: labels[job.processingStage || ''] || (job.status === 'muxing' ? '封装处理中' : '校验处理中'),
+    detail: `${clock(job.processingSeconds || 0)}${job.processingDuration ? ` / ${clock(job.processingDuration)}` : ''}${job.processingSpeed ? ` · ${job.processingSpeed}` : ''} · 已用 ${clock(elapsed)}` };
+}
+
 export function taskMatchesFilter(job: Job, filter: TaskFilter): boolean {
   if (filter === 'all') return true;
   if (filter === 'active') return !['completed', 'failed', 'cancelled'].includes(job.status);

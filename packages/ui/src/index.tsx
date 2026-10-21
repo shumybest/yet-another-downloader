@@ -1,5 +1,5 @@
 import type { Capture, Job, MediaKind, MediaRendition } from '@m3u8-bridge/protocol';
-import { canRetryTask, formatBytes, isActiveTask, type TaskFilter, taskMatchesFilter } from './task-state';
+import { canRetryTask, formatBytes, isActiveTask, processingView, type TaskFilter, taskMatchesFilter } from './task-state';
 import { friendlyError } from './error-state';
 import './styles.css';
 
@@ -97,10 +97,12 @@ export function JobList({ jobs, filter = 'all', onCancel, onRetry, onDelete, onR
 }) {
   const visibleJobs = jobs.filter(job => taskMatchesFilter(job, filter));
   if (!visibleJobs.length) return <div className="empty">暂无符合条件的下载任务</div>;
-  return <div className="job-list">{visibleJobs.map(job => <article className="job" key={job.id}>
+  return <div className="job-list">{visibleJobs.map(job => {
+    const processing = processingView(job);
+    return <article className="job" key={job.id}>
     <div className="job-head"><div className="job-title"><span className={`pill pill-${job.kind || 'direct'}`}>{kindLabel(job.kind)}</span><strong>{job.title}</strong></div><span className={`status status-${job.status}`}>{statusLabel(job.status)}</span></div>
-    <div className="progress"><i style={{ width: `${Math.max(0, Math.min(job.progress, 100))}%` }} /></div>
-    <div className="job-meta"><span>{job.progress.toFixed(1)}%</span><span>{job.speed || `${job.downloadedFragments}${job.totalFragments ? `/${job.totalFragments}` : ''} 个分片`}</span><span>{formatBytes(job.downloadedBytes)}{job.totalBytes ? ` / ${formatBytes(job.totalBytes)}` : ''}</span></div>
+    <div className={`progress ${processing && processing.percent === null ? 'progress-indeterminate' : ''}`}><i style={{ width: `${processing ? processing.percent ?? 30 : Math.max(0, Math.min(job.progress, 100))}%` }} /></div>
+    <div className="job-meta">{processing ? <><span>{processing.label}{processing.percent !== null ? ` ${processing.percent.toFixed(1)}%` : ' · 等待进度'}</span><span>{processing.detail}</span></> : <><span>{job.progress.toFixed(1)}%</span><span>{job.speed || `${job.downloadedFragments}${job.totalFragments ? `/${job.totalFragments}` : ''} 个分片`}</span><span>{formatBytes(job.downloadedBytes)}{job.totalBytes ? ` / ${formatBytes(job.totalBytes)}` : ''}</span></>}</div>
     <div className="job-submeta"><span>第 {job.attempt || 1} 次尝试</span>{job.retryOf && <span>重试自 {job.retryOf.slice(0, 8)}</span>}{job.lastActivityAt && <span>最后活动 {new Date(job.lastActivityAt).toLocaleTimeString()}</span>}</div>
     {job.stallReason && <div className="warning">{job.stallReason}</div>}
     {job.outputPath && <div className="job-path"><code>{job.outputPath}</code><button className="button button-link" onClick={() => onReveal(job.outputPath!)}>在 Finder 中显示</button></div>}
@@ -110,7 +112,7 @@ export function JobList({ jobs, filter = 'all', onCancel, onRetry, onDelete, onR
       {canRetryTask(job) && <button className="button button-primary" onClick={() => onRetry(job.id)}>重新下载</button>}
       {!isActiveTask(job) && <button className="button button-ghost" onClick={() => onDelete(job.id)}>删除记录</button>}
     </div>
-  </article>)}</div>;
+  </article>; })}</div>;
 }
 
 function statusLabel(status: Job['status']): string {

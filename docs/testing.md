@@ -147,6 +147,14 @@ Rust 的 `engine_probe` 测试使用临时 loopback 端口模拟空闲端口、�
 
 桌面端 `engine-startup.test.ts` 检查实际阶段映射与耗时显示。手动验收时确认：启动阶段逐项更新、失败保留详情、处理冲突后可重新检查、引擎提前退出可见、发布版日志可打开、启动中退出应用不遗留引擎。
 
+## 代理路由与访问日志回归
+
+媒体后处理回归：`tests/test_media_progress.py` 使用真实 FFmpeg 验证运行中进度回传，短时限模拟持续推进超过旧总时限、不推进仍被终止、失败保留原始下载且不发布输出、兼容编码只封装，以及直接调用 yt-dlp RetryManager 验证 `n` 关键字。长视频不再固定 900 秒停止；本轮未等待一整段超过 15 分钟的真实视频转码。
+
+`PYTHONPATH=engine python3 -m unittest discover -s tests -p test_network_routing.py -v` 覆盖 HTTP/SOCKS5 代理仍由 HLS 网关使用、yt-dlp 显式直连本地网关、空代理不继承环境变量、外网 curl 不受 `NO_PROXY` 意外绕过。真实下载测试用临时端口的代理和中继，代理拒绝转发 loopback 请求，并使用真实 yt-dlp/FFmpeg 下载 HLS、封装和校验含视频与音频轨的 MP4；不使用用户端口或私有媒体。
+
+日志测试确认成功的 GET 轮询和分片请求静默，失败响应、任务修改和协议错误仍可见。真实站点检查只验证代理取回清单及 yt-dlp 经本地中继解析成功，不代表整段视频已下载。
+
 ## 2026-10-21 回归记录
 
 - `pnpm verify` 通过：35 个 TypeScript 测试、87 个 Python 测试、18 个 Rust 测试，公开树检查、类型检查和桌面/扩展构建均通过。

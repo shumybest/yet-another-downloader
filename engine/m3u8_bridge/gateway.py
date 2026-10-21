@@ -145,8 +145,8 @@ class HLSGateway:
             '--connect-timeout', '15', '--max-time', '30',
             '-w', '\n__MB_STATUS__%{http_code}',
         ]
-        if context.proxy:
-            args.extend(['--proxy', context.proxy])
+        # The captured task's settings, not the parent's proxy environment, own routing.
+        args.extend(['--proxy', context.proxy, '--noproxy', ''])
         for key, value in context.headers.items():
             if key.lower() in {'cookie', 'authorization', 'user-agent', 'referer', 'origin', 'accept'}:
                 args.extend(['--header', f'{key}: {value}'])

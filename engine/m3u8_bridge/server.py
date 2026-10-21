@@ -22,6 +22,7 @@ from . import __version__
 from .gateway import HLSGateway
 from .history import HistoryStore
 from .download_source import download_source
+from .media_progress import MediaProgress
 
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -71,9 +72,10 @@ def read_settings() -> dict:
     return defaults
 
 
-def retry_delay(attempt: int) -> float:
+def retry_delay(attempt: int = 1, *, n: int | None = None) -> float:
     """Bound retry backoff so a bad proxy cannot leave a job apparently frozen."""
-    return min(4.0, 0.5 * (2 ** max(0, int(attempt) - 1)))
+    exponent = max(0, int(n) if n is not None else int(attempt) - 1)
+    return 0.5 * (2 ** min(3, exponent))
 
 
 def activate_desktop(pid_value: str | None = None) -> bool:
@@ -173,6 +175,8 @@ class Engine:
             'downloadedFragments', 'totalFragments', 'downloadedBytes', 'totalBytes',
             'speed', 'speedBytesPerSecond', 'error', 'lastActivityAt', 'stallReason', 'attempt', 'retryOf',
             'canRetry', 'createdAt', 'updatedAt',
+            'processingStage', 'processingProgress', 'processingSeconds', 'processingDuration',
+            'processingSpeed', 'processingStartedAt',
         )
         return {key: job[key] for key in fields if key in job}
 
@@ -230,11 +234,11 @@ class Engine:
             'progress_hooks': [progress_hook],
             'quiet': True,
             'no_warnings': True,
+            # An empty proxy explicitly disables inherited environment proxies.
+            'proxy': proxy,
         }
         if headers:
             options['http_headers'] = headers
-        if proxy:
-            options['proxy'] = proxy
         return options
 
     def create_job(self, request: dict) -> dict:
@@ -458,7 +462,12 @@ class Engine:
         timeout: float,
         cancel_event: threading.Event | None = None,
         on_progress=None,
+        idle_timeout: float | None = None,
     ) -> subprocess.CompletedProcess:
+        if idle_timeout is not None and not hasattr(on_progress, 'feed'):
+            activity = on_progress or (lambda: None)
+            on_progress = MediaProgress(lambda **_: None, activity)
+            on_progress.start('processing')
         process = subprocess.Popen(
             args,
             stdout=subprocess.PIPE,
@@ -466,26 +475,36 @@ class Engine:
             start_new_session=(os.name == 'posix'),
         )
         deadline = time.monotonic() + timeout
+        idle_deadline = time.monotonic() + (idle_timeout or timeout)
         observed_output = 0
         try:
             while True:
                 if cancel_event and cancel_event.is_set():
                     HLSGateway._terminate(process)
                     raise RuntimeError('Download cancelled while running a media process')
-                remaining = deadline - time.monotonic()
+                remaining = (idle_deadline if idle_timeout is not None else deadline) - time.monotonic()
                 if remaining <= 0:
                     HLSGateway._terminate(process)
+                    if idle_timeout is not None:
+                        raise RuntimeError(f'Media process made no processing progress for {idle_timeout:g} seconds')
                     raise RuntimeError(f'Media process timed out after {int(timeout)} seconds')
                 try:
                     stdout, stderr = process.communicate(timeout=min(SCHEDULER_POLL_SECONDS, remaining))
+                    if on_progress and hasattr(on_progress, 'feed'):
+                        on_progress.feed(stdout)
                     break
                 except subprocess.TimeoutExpired as error:
                     partial_stdout = error.output or b''
                     partial_stderr = error.stderr or b''
+                    if on_progress and hasattr(on_progress, 'feed'):
+                        on_progress.feed(partial_stdout)
                     current_output = len(partial_stdout) + len(partial_stderr)
+                    if idle_timeout is not None and hasattr(on_progress, 'last_advance'):
+                        idle_deadline = on_progress.last_advance + idle_timeout
                     if on_progress and current_output > observed_output:
                         observed_output = current_output
-                        on_progress()
+                        if not hasattr(on_progress, 'feed'):
+                            on_progress()
         except BaseException:
             HLSGateway._terminate(process)
             raise
@@ -552,6 +571,10 @@ class Engine:
             source_url, download_capture, site_video = download_source(capture)
             kind = job['kind']
             cancel_event = job['_cancel']
+            media_progress = MediaProgress(
+                lambda **values: self._update(job, **values) if not cancel_event.is_set() and job['status'] not in {'completed', 'failed', 'cancelled'} else None,
+                lambda: self._process_activity(job),
+            )
             headers = dict(capture.get('headers') or {})
             if capture.get('cookie'):
                 headers['Cookie'] = capture['cookie']
@@ -572,7 +595,7 @@ class Engine:
                 self._download_png_segments(job, png_segments, staged_path, ffmpeg, int(request.get('concurrency') or settings.get('concurrency') or 8))
                 self._ensure_job_active(job)
                 self._update(job, status='validating', progress=99.0)
-                self._validate(staged_path, ffmpeg, job['_cancel'], lambda: self._process_activity(job))
+                self._validate(staged_path, ffmpeg, job['_cancel'], media_progress)
                 self._ensure_job_active(job)
                 output_path = self._commit_output(staged_path, output_dir, stem)
                 self._update(job, status='completed', progress=100.0, outputPath=str(output_path), speed='')
@@ -596,10 +619,17 @@ class Engine:
                     stem,
                     ffmpeg,
                     download_capture,
-                    proxy,
+                    '' if kind == 'hls' else proxy,
                     progress_hook,
                     int(request.get('concurrency') or settings.get('concurrency') or 8),
                 )
+                def postprocessor_hook(event):
+                    self._ensure_job_active(job)
+                    if event.get('status') == 'started':
+                        self._update(job, status='muxing', speed='', speedBytesPerSecond=0)
+                        media_progress.start('merging')
+                    self._process_activity(job)
+                options['postprocessor_hooks'] = [postprocessor_hook]
                 try:
                     with yt_dlp.YoutubeDL(options) as downloader:
                         info = downloader.extract_info(playlist_url, download=True)
@@ -617,11 +647,11 @@ class Engine:
                 stem,
                 ffmpeg,
                 job['_cancel'],
-                lambda: self._process_activity(job),
+                media_progress,
             )
             self._ensure_job_active(job)
             self._update(job, status='validating', progress=99.0)
-            self._validate(output_path, ffmpeg, job['_cancel'], lambda: self._process_activity(job))
+            self._validate(output_path, ffmpeg, job['_cancel'], media_progress)
             self._ensure_job_active(job)
             output_path = self._commit_output(output_path, output_dir, stem)
             self._update(job, status='completed', progress=100.0, outputPath=str(output_path), speed='', canRetry=False, stallReason='')
@@ -638,7 +668,10 @@ class Engine:
         finally:
             self.gateway.forget(job['id'])
             if download_dir is not None:
-                shutil.rmtree(download_dir, ignore_errors=True)
+                if job['status'] == 'failed' and job.get('processingStage') and any(download_dir.iterdir()):
+                    self._update(job, error=f"{job.get('error') or 'Media processing failed'}\n已下载的文件已保留（未通过最终校验）：{download_dir}")
+                else:
+                    shutil.rmtree(download_dir, ignore_errors=True)
 
     def _download_direct_fallback(self, job: dict, capture: dict, output_dir: Path, stem: str, ffmpeg: str, proxy: str) -> Path:
         work_dir = Path(tempfile.mkdtemp(prefix=f"m3u8-bridge-{job['id']}-"))
@@ -651,8 +684,7 @@ class Engine:
                 '--connect-timeout', '15', '--speed-time', '30', '--speed-limit', '1024',
                 '--output', str(raw_path),
             ]
-            if proxy:
-                args.extend(['--proxy', proxy])
+            args.extend(['--proxy', proxy, '--noproxy', ''])
             headers = dict(capture.get('headers') or {})
             if capture.get('cookie'):
                 headers['Cookie'] = str(capture['cookie'])
@@ -710,13 +742,19 @@ class Engine:
                 current_size = raw_path.stat().st_size
                 self._mark_activity(job)
                 self._update(job, downloadedBytes=current_size, lastActivityAt=job['lastActivityAt'], stallReason='')
+            staged_source = output_dir / f'{stem}.downloaded.bin'
+            shutil.move(str(raw_path), staged_source)
+            self._update(job, status='muxing')
+            reporter = MediaProgress(lambda **values: self._update(job, **values),
+                                     (lambda: self._process_activity(job)) if cancel_event else (lambda: None))
+            reporter.start('merging')
             return self._normalize_output(
-                raw_path,
+                staged_source,
                 output_dir,
                 stem,
                 ffmpeg,
                 job.get('_cancel'),
-                (lambda: self._process_activity(job)) if job.get('_cancel') else None,
+                reporter,
             )
         finally:
             shutil.rmtree(work_dir, ignore_errors=True)
@@ -728,12 +766,17 @@ class Engine:
             raise RuntimeError('ffprobe was not found; cannot inspect the downloaded video')
         result = subprocess.run([
             ffprobe, '-v', 'error', '-show_entries',
-            'stream=codec_type,codec_name,codec_tag_string,pix_fmt',
+            'format=duration:stream=codec_type,codec_name,codec_tag_string,pix_fmt,duration',
             '-of', 'json', str(path),
         ], capture_output=True, text=True, timeout=30)
         if result.returncode:
             raise RuntimeError(f'ffprobe rejected the output: {result.stderr[-500:]}')
-        return json.loads(result.stdout).get('streams', [])
+        data = json.loads(result.stdout)
+        streams = data.get('streams', [])
+        for stream in streams:
+            if not stream.get('duration') or stream.get('duration') == 'N/A':
+                stream['duration'] = (data.get('format') or {}).get('duration')
+        return streams
 
     @classmethod
     def _normalize_output(
@@ -768,7 +811,18 @@ class Engine:
                 os.replace(source, target)
             return target
         encoded = target if source != target else output_dir / f'.{stem}.normalized.mp4'
-        cls._encode_mp4(source, encoded, ffmpeg, cancel_event, on_progress)
+        if hasattr(on_progress, 'start'):
+            on_progress.start('merging' if video_compatible else 'transcoding', video.get('duration') or 0)
+        if video_compatible:
+            args = [ffmpeg, '-v', 'error', '-xerror', '-y', '-progress', 'pipe:1', '-nostats', '-i', str(source),
+                    '-map', '0:v:0', '-map', '0:a?', '-c:v', 'copy', '-c:a', 'copy' if not audio or audio.get('codec_name') in {'aac', 'alac', 'mp3'} else 'aac',
+                    '-movflags', '+faststart', str(encoded)]
+            result = cls._run_cancellable_process(args, timeout=900, cancel_event=cancel_event,
+                                                  on_progress=on_progress, idle_timeout=STALL_FAILURE_SECONDS)
+            if result.returncode or not encoded.is_file() or not encoded.stat().st_size:
+                raise RuntimeError(f'Could not remux video to MP4: {result.stderr[-800:]}')
+        else:
+            cls._encode_mp4(source, encoded, ffmpeg, cancel_event, on_progress)
         if encoded != target:
             os.replace(encoded, target)
         if source != target and source.exists():
@@ -786,14 +840,15 @@ class Engine:
     ) -> None:
         args = [
             ffmpeg, '-hide_banner', '-v', 'error', '-xerror', '-y', '-progress', 'pipe:1', '-nostats', '-i', str(source),
-            '-map', '0:v:0', '-map', '0:a?', '-c:v', 'libx264', '-preset', 'medium', '-pix_fmt', 'yuv420p',
+            '-map', '0:v:0', '-map', '0:a?', '-c:v', 'libx264', '-preset', 'veryfast', '-pix_fmt', 'yuv420p',
             '-c:a', 'aac', '-b:a', '160k', '-movflags', '+faststart', str(target),
         ]
         result = cls._run_cancellable_process(
             args,
-            timeout=900,
+            timeout=24 * 60 * 60,
             cancel_event=cancel_event,
             on_progress=on_progress,
+            idle_timeout=STALL_FAILURE_SECONDS,
         )
         if result.returncode or not target.is_file() or target.stat().st_size == 0:
             raise RuntimeError(f'Could not normalize video to MP4: {result.stderr[-800:]}')
@@ -905,6 +960,8 @@ class Engine:
             if len(kinds) != 1:
                 raise RuntimeError('Image HLS contains mixed image and MPEG-TS segments')
             self._update(job, status='muxing', progress=96.0)
+            media_progress = MediaProgress(lambda **values: self._update(job, **values), lambda: self._process_activity(job))
+            media_progress.start('merging', sum(durations))
             if kinds == {'mpegts'}:
                 transport_path = work_dir / 'segments.ts'
                 with transport_path.open('wb') as target:
@@ -935,7 +992,8 @@ class Engine:
                 args,
                 timeout=max(120, len(segments) * 2),
                 cancel_event=job['_cancel'],
-                on_progress=lambda: self._process_activity(job),
+                on_progress=media_progress,
+                idle_timeout=STALL_FAILURE_SECONDS,
             )
             if result.returncode:
                 raise RuntimeError(f'Image HLS encoding failed: {result.stderr[-800:]}')
@@ -1070,6 +1128,8 @@ class Engine:
         duration = float((data.get('format') or {}).get('duration') or 0)
         if duration <= 0:
             raise RuntimeError('The output has no valid duration')
+        if hasattr(on_progress, 'start'):
+            on_progress.start('scanning', duration)
         packet_scan = cls._run_cancellable_process(
             [
                 ffmpeg, '-v', 'error', '-xerror', '-progress', 'pipe:1', '-nostats',
@@ -1078,18 +1138,24 @@ class Engine:
             timeout=900,
             cancel_event=cancel_event,
             on_progress=on_progress,
+            idle_timeout=STALL_FAILURE_SECONDS,
         )
         if packet_scan.returncode:
             raise RuntimeError(f'ffmpeg full-file scan failed: {packet_scan.stderr[-500:]}')
+        if hasattr(on_progress, 'start'):
+            on_progress.start('checking-head', min(5, duration))
         decode = cls._run_cancellable_process(
             [ffmpeg, '-v', 'error', '-xerror', '-progress', 'pipe:1', '-nostats', '-i', str(path), '-t', '5', '-f', 'null', '-'],
             timeout=45,
             cancel_event=cancel_event,
             on_progress=on_progress,
+            idle_timeout=STALL_FAILURE_SECONDS,
         )
         if decode.returncode:
             raise RuntimeError(f'ffmpeg decode check failed: {decode.stderr[-500:]}')
         if duration > 10:
+            if hasattr(on_progress, 'start'):
+                on_progress.start('checking-tail', 5)
             tail_decode = cls._run_cancellable_process(
                 [
                     ffmpeg, '-v', 'error', '-xerror', '-progress', 'pipe:1', '-nostats',
@@ -1098,6 +1164,7 @@ class Engine:
                 timeout=45,
                 cancel_event=cancel_event,
                 on_progress=on_progress,
+                idle_timeout=STALL_FAILURE_SECONDS,
             )
             if tail_decode.returncode:
                 raise RuntimeError(f'ffmpeg tail decode check failed: {tail_decode.stderr[-500:]}')
@@ -1118,6 +1185,10 @@ class Handler(BaseHTTPRequestHandler):
     server_version = 'm3u8-bridge/' + __version__
 
     def log_message(self, format: str, *args) -> None:
+        if format == '"%s" %s %s' and len(args) >= 2:
+            status = str(args[1])
+            if status.isdigit() and int(status) < 400 and getattr(self, 'command', '') in {'GET', 'HEAD', 'OPTIONS'}:
+                return
         message = format % args
         message = re.sub(r'(https?://[^\s?]+)\?[^\s]+', r'\1?[redacted]', message)
         print(f'[http] {message}', flush=True)

@@ -4,6 +4,15 @@ All notable changes to this project are documented here. The format follows [Kee
 
 ## [Unreleased]
 
+## [0.1.5] - 2026-10-21
+
+### Fixed
+
+- Report real media processing progress and guard against no advancement instead of killing active processing after 900 seconds.
+- Remux compatible video without re-encoding; use faster H.264 conversion when necessary and retain downloads on post-processing failure.
+- Accept yt-dlp RetryManager's zero-based `n` keyword in bounded retry backoff.
+- Keep local HLS relay requests off the upstream proxy and silence successful polling access logs.
+
 ## [0.1.4] - 2026-10-21
 
 ### Added
@@ -70,7 +79,8 @@ All notable changes to this project are documented here. The format follows [Kee
 - yt-dlp and FFmpeg download, normalization, validation, proxy, cancellation, retry, and stall protection.
 - Packaged extension installation and browser-to-desktop activation.
 
-[Unreleased]: https://github.com/shumybest/yet-another-downloader/compare/v0.1.4...HEAD
+[Unreleased]: https://github.com/shumybest/yet-another-downloader/compare/v0.1.5...HEAD
+[0.1.5]: https://github.com/shumybest/yet-another-downloader/compare/v0.1.4...v0.1.5
 [0.1.4]: https://github.com/shumybest/yet-another-downloader/compare/v0.1.3...v0.1.4
 [0.1.3]: https://github.com/shumybest/yet-another-downloader/compare/v0.1.2...v0.1.3
 [0.1.2]: https://github.com/shumybest/yet-another-downloader/compare/v0.1.1...v0.1.2

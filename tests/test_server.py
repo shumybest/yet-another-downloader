@@ -561,7 +561,8 @@ class MediaRoutingTests(unittest.TestCase):
                 )
 
             self.assertEqual(job['downloadedBytes'], 3072)
-            self.assertTrue(job['speed'])
+            self.assertEqual(job['speed'], '')
+            self.assertEqual(job['processingStage'], 'merging')
 
     def test_png_mux_process_is_terminated_when_job_is_cancelled(self):
         with tempfile.TemporaryDirectory() as directory:

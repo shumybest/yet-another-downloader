@@ -83,6 +83,12 @@ export interface Job {
   canRetry?: boolean;
   createdAt: number;
   updatedAt: number;
+  processingStage?: string;
+  processingProgress?: number | null;
+  processingSeconds?: number;
+  processingDuration?: number;
+  processingSpeed?: string;
+  processingStartedAt?: number;
 }
 
 export interface EngineSettings {

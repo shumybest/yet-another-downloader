@@ -37,3 +37,7 @@ body.extension-popup { width: 40rem; min-width: 40rem; max-width: 40rem; overflo
 .extension-popup .resource-copy small { font-size: 10px; }
 .extension-popup .resource > .button { align-self: center; padding: 6px 11px; font-size: 11px; white-space: nowrap; }
 .extension-popup .empty { margin: 10px; }
+.progress-indeterminate i { animation: media-progress-slide 1.6s linear infinite; }
+.job-meta { flex-wrap: wrap; overflow-wrap: anywhere; }
+@keyframes media-progress-slide { from { transform: translateX(-100%); } to { transform: translateX(340%); } }
+@media (prefers-reduced-motion: reduce) { .progress-indeterminate i { animation: none; } }

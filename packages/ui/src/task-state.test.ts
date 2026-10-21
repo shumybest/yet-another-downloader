@@ -29,3 +29,15 @@ test('aggregates active jobs, live speed and downloaded bytes', () => {
 
   assert.deepEqual(metrics, { active: 1, speedBytesPerSecond: 1024, downloadedBytes: 6656 });
 });
+
+test('processing uses stage progress instead of stale download percentage', async () => {
+  const { processingView } = await import('./task-state.ts');
+  const view = processingView({ ...job('queued'), status: 'muxing', progress: 99,
+    processingStage: 'transcoding', processingProgress: 25, processingSeconds: 30,
+    processingDuration: 120, processingSpeed: '0.5x', processingStartedAt: 1000 }, 61000);
+  assert.equal(view?.label, '转码为 H.264');
+  assert.equal(view?.percent, 25);
+  assert.match(view?.detail || '', /0:30 \/ 2:00.*0.5x.*1:00/);
+  assert.equal(processingView({ ...job('queued'), status: 'muxing' })?.percent, null);
+  assert.equal(processingView(job('completed')), null);
+});
